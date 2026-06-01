@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Jeu Adaptation</title>
+
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="script.js" defer></script>
+
+</head>
+<body>
+
+<div class="sidebar">
+
+<h3>Tableau de bord</h3>
+
+<div class="mode-box">
+  <button onclick="setMode(1)">Manche 1</button>
+  <button onclick="setMode(2)">Manche 2</button>
+  <button onclick="setMode(3)">Manche 3</button>
+</div>
+
+<div class="score-box">
+  <strong>Score</strong>
+  <div class="score">
+    <span id="score">0</span>/10
+  </div>
+</div>
+
+<div class="action-box">
+  <strong>Actions choisies</strong>
+  <p>
+    <span id="count">0</span>/15
+  </p>
+</div>
+
+<button onclick="resetGame()" class="reset-btn">Réinitialiser</button>
+<button onclick="exportPDF()" class="pdf-btn pdf-hidden" id="pdfBtn">
+  Export PDF
+</button>
+
+<p id="msg"></p>
+
+<div class="summary-box">
+  <h3>Résumé</h3>
+  <div id="summaryText">0 action</div>
+</div>
+
+</div>
+
+<header>
+
+<h1>Atelier ClimAdapt</h1>
+
+<p class="intro">
+Prête et prêt à relever les défis du climat ? Place au jeu pour comprendre et s’adapter au changement climatique !
+Construisez une stratégie d’adaptation climatique en sélectionnant 
+<strong>exactement 15 actions</strong>. 
+Votre objectif est d’obtenir le <strong>meilleur score de résilience (sur 10)</strong> 
+en combinant des actions variées : techniques, organisationnelles, humaines, 
+financières et fondées sur la nature.
+<br><br>
+⚠️ Certaines décisions peuvent être <strong>mal-adaptées</strong> ou insuffisamment diversifiées.
+Cherchez un équilibre entre les différents types d’adaptation ⚠️.
+</p>
+
+</header>
+
+<div class="container">
+
+
+<div class="dashboard">
+
+<div id="criteriaBox" class="card criteria-box criteria-row">
+  <h3>📌 10 critères d’une bonne stratégie</h3>
+  <ol>
+    <li>Stratégie continue et flexible</li>
+    <li>Plusieurs temporalités</li>
+    <li>Collaboration territoriale</li>
+    <li>Analyse complète des risques</li>
+    <li>Chaîne de valeur complète</li>
+    <li>Priorité aux solutions fondées sur la nature</li>
+    <li>Indicateurs et outils de suivi</li>
+    <li>Éviter maladaptation</li>
+    <li>Formation des acteurs</li>
+    <li>Diversité des actions</li>
+  </ol>
+</div>
+
+  <div class="card chart-card">
+    <h3>Évolution du score</h3>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="card risk-card">
+    <h3>Podium des vos risques climatiques</h3>
+
+    <div class="risk gold">
+      🥇 <strong>Inondation 💧☔🚧</strong>
+    </div>
+
+    <div class="risk silver">
+      🥈 <strong>Retrait Gonflement des Argiles 🧱⛰️🏠</strong>
+    </div>
+
+    <div class="risk bronze">
+      🥉 <strong>Fortes pluies et tempêtes 🌧️⛆🌪️</strong>
+    </div>
+
+  </div>
+
+</div>
+
+<div class="grid" id="grid"></div>
+
+</div>
+
+</body>
+</html>
