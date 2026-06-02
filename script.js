@@ -203,35 +203,33 @@ if(needed.every(c => catsSel.includes(c))){
 
 score = Math.max(0, Math.min(10, score));
 
-document.getElementById('score').textContent = score;if(mode === 2 || mode === 3){
-  document.getElementById('score').textContent = score;
+const scoreEl = document.getElementById('score');
+const scoreGaugeFill = document.getElementById('scoreGaugeFill');
+const actionProgressFill = document.getElementById('actionProgressFill');
+const actionProgress = actionProgressFill ? actionProgressFill.parentElement : null;
 const ratio = score / 10;
+const selCount = sel.length;
+const revealScore = mode === 2 || mode === 3 || selCount === 15;
 
-const r = Math.round(255 * (1 - ratio));
-const g = Math.round(255 * ratio);
+scoreEl.textContent = revealScore ? score : "??";
+scoreEl.classList.toggle('score--placeholder', !revealScore);
+scoreEl.style.color = revealScore
+  ? `rgb(${Math.round(255 * (1 - ratio))},${Math.round(255 * ratio)},0)`
+  : 'var(--text_color)';
 
-document.getElementById('score').style.color = `rgb(${r},${g},0)`;
+if (scoreGaugeFill) {
+  scoreGaugeFill.parentElement.parentElement.style.setProperty('--score-ratio', revealScore ? ratio : 0);
 }
-else {
-  // Manche 1 : score caché sauf si 15 actions
-  const selCount = sel.length;
 
-  if(selCount === 15){
-    document.getElementById('score').textContent = score;
-  } else {
-    document.getElementById('score').textContent = "??";
-  }
+if (actionProgressFill) {
+  const actionRatio = Math.min(selCount, 15) / 15;
+  actionProgressFill.style.width = `${actionRatio * 100}%`;
+  actionProgress.classList.toggle('action-progress--full', selCount >= 15);
 }
+
 document.getElementById('count').textContent = sel.length;
 
 /* message 15 actions */
-document.getElementById('msg').textContent =
-  sel.length === 15
-    ? '✅ Exactement 15 actions'
-    : sel.length > 15
-    ? '⚠️ Trop d’actions'
-    : '';
-
 updateChart(score);
 
 const summary = document.getElementById("summaryText");
@@ -245,13 +243,21 @@ Actions : ${numbers.join(", ")}
 }
 
 function resetGame(){
-document.querySelectorAll('input').forEach(i=>i.checked=false);
-history=[0];
-chart.destroy();
-initChart();
-updateScore();
+  if (mode === 0) {
+    return;
+  }
 
-setMode(mode);
+  document.querySelectorAll('#grid input[type="checkbox"]').forEach(i => {
+    i.checked = false;
+  });
+
+  if (mode === 2 || mode === 3) {
+    history = [0];
+    chart.destroy();
+    initChart();
+  }
+
+  updateScore();
 }
 
 document.addEventListener('change', updateScore);

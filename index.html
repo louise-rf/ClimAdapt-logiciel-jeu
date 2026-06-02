@@ -17,23 +17,43 @@
 
     <div class="sidebar__content">
       <div class="mode-box">
-        <button onclick="setMode(1)">Manche 1</button>
-        <button onclick="setMode(2)">Manche 2</button>
-        <button onclick="setMode(3)">Manche 3</button>
+        <button class="mode-button" onclick="setMode(1)">
+          <span class="mode-button__circle">1</span>
+          <span class="mode-button__label">Découverte</span>
+        </button>
+        <button class="mode-button" onclick="setMode(2)">
+          <span class="mode-button__circle">2</span>
+          <span class="mode-button__label">Décisions</span>
+        </button>
+        <button class="mode-button" onclick="setMode(3)">
+          <span class="mode-button__circle">3</span>
+          <span class="mode-button__label">Amélioration</span>
+        </button>
       </div>
 
       <div class="score-box">
         <strong>Score</strong>
-        <div class="score">
-          <span id="score">0</span>/10
+        <div class="score-box__row">
+          <div class="score">
+            <span id="score">0</span><span class="score__denominator">/10</span>
+          </div>
+          <div class="score-gauge" aria-hidden="true">
+            <div class="score-gauge__track">
+              <div class="score-gauge__fill" id="scoreGaugeFill"></div>
+              <div class="score-gauge__hole"></div>
+            </div>
+          </div>
         </div>
       </div>
 
       <div class="action-box">
-        <strong>Actions choisies</strong>
-        <p>
-          <span id="count">0</span>/15
-        </p>
+        <div class="action-box__header">
+          <strong>Actions choisies</strong>
+          <p class="action-box__count"><span id="count">0</span>/15</p>
+        </div>
+        <div class="action-progress" aria-hidden="true">
+          <div class="action-progress__fill" id="actionProgressFill"></div>
+        </div>
       </div>
 
       <button onclick="exportPDF()" class="pdf-btn pdf-hidden" id="pdfBtn">
@@ -42,13 +62,13 @@
 
       <p id="msg"></p>
 
+      <button onclick="resetGame()" class="reset-btn">Réinitialiser</button>
+
       <div class="summary-box">
         <h3>Résumé</h3>
         <div id="summaryText">0 action</div>
       </div>
     </div>
-
-    <button onclick="resetGame()" class="reset-btn">Réinitialiser</button>
   </div>
 
   <header id="mainHeader">
@@ -68,17 +88,25 @@
   <section id="homeScreen" class="home-screen">
   <div class="home-screen__content">
 
-    <h1 class="home-screen__title">
-      Pilotez la résilience climatique de votre organisation
-    </h1>
+    <div class="home-screen__text">
+      <h1 class="home-screen__title">
+        Pilotez la résilience climatique de votre organisation
+      </h1>
 
-    <p class="home-screen__subtitle">
-      Construisez une stratégie d'adaptation climatique robuste
-      en sélectionnant <strong>15 actions d'adaptation</strong> parmi les 5 catégories proposées.
-      Votre objectif est de se rapprocher le plus possible des bonnes pratiques en terme d'adaptation
-      correspondant au <strong>score de 10/10</strong>.
-    </p>
+      <p class="home-screen__subtitle">
+        Construisez une stratégie d'adaptation climatique robuste
+        en sélectionnant <strong>15 actions d'adaptation</strong> parmi les 5 catégories proposées.
+        Votre objectif est de se rapprocher le plus possible des bonnes pratiques reconnues pour les
+        stratégies d'adaptation. Cela correspondant au <strong>score de 10/10</strong>.
+      </p>
 
+      <div class="home-screen__actions">
+        <button class="home-screen__cta" onclick="setMode(1)">
+          Commencer l'atelier
+        </button>
+
+        <p class="home-screen__meta">1h - 3 phases</p>
+      </div>
     </div>
 
     <div class="home-screen__image">
