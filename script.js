@@ -366,13 +366,6 @@ const actions = [
     "tag": 0
   },
   {
-    "id": 10,
-    "title": "Compatibilité entre les investissements réalisés et l’augmentation des risques physiques",
-    "description": "(ex : vérifier que tout nouveau bpatiment reste opérationnel sous des pluies extrêmes)",
-    "cat": "Ressources Financières",
-    "tag": 8
-  },
-  {
     "id": 1,
     "title": "Promotion des comportements individuels adaptés face aux fortes chaleurs",
     "description": "(ex : diffuser les consignes d'hydratation et d'acccès aux espaces frais)",
@@ -668,25 +661,33 @@ cats.forEach(cat => {
       card.dataset.cat = a.cat;
 
       card.innerHTML = `
-        <label class="action-card__label">
-          <input
-            type="checkbox"
-            data-id="${globalNumber}"
-            data-cat="${a.cat}"
-            data-tag="${a.tag}"
-          >
-
-          <div class="action-card__content">
-            <div class="action-card__title">
-              <strong>${globalNumber}.</strong> ${a.title}
-            </div>
-
-            <div class="action-card__desc">
-              ${formatActionLabel(a)}
-            </div>
-          </div>
-        </label>
-      `;
+      <input
+        class="action-checkbox"
+        type="checkbox"
+        data-id="${globalNumber}"
+        data-cat="${a.cat}"
+        data-tag="${a.tag}"
+      >
+    
+      <div class="action-card__content">
+    
+        <div class="action-card__title">
+          <strong>${globalNumber}.</strong> ${a.title}
+        </div>
+    
+        <div class="action-card__desc">
+          ${formatActionLabel(a)}
+        </div>
+    
+        <button
+          type="button"
+          class="select-btn"
+        >
+          Sélectionner
+        </button>
+    
+      </div>
+    `;
 
       actionsGrid.appendChild(card);
 
@@ -806,13 +807,23 @@ Actions : ${numbers.join(", ")}
 
 }
 
-function resetGame(){
+function resetGame() {
+
   if (mode === 0) {
     return;
   }
 
-  document.querySelectorAll('#grid input[type="checkbox"]').forEach(i => {
-    i.checked = false;
+  document.querySelectorAll('.action-card').forEach(card => {
+
+    const checkbox = card.querySelector('.action-checkbox');
+    const button = card.querySelector('.select-btn');
+
+    checkbox.checked = false;
+
+    card.classList.remove('selected');
+
+    button.textContent = 'Sélectionner';
+
   });
 
   if (mode === 2 || mode === 3) {
@@ -828,6 +839,25 @@ document.addEventListener('change', (e) => {
   if (e.target.matches('#grid input[type="checkbox"]')) {
     updateScore();
   }
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.classList.contains('select-btn')) {
+    return;
+  }
+  const card = e.target.closest('.action-card');
+  const checkbox = card.querySelector('.action-checkbox');
+  checkbox.checked = !checkbox.checked;
+  card.classList.toggle(
+    "selected",
+    checkbox.checked
+  );
+  e.target.textContent =
+    checkbox.checked
+      ? "✓"
+      : "Sélectionner";
+  updateScore();
+
 });
 
 initChart();
