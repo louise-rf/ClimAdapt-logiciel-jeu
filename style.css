@@ -183,6 +183,48 @@
     margin-bottom: var(--space_sm);
   }
 
+  #mainHeader {
+    margin-left: 60px;
+    padding: 0.85rem 1.25rem;
+  }
+
+  .mode-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .mode-banner__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .mode-banner__eyebrow {
+    margin: 0;
+    color: var(--muted_color);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .mode-banner__title {
+    margin: 0;
+    max-width: none;
+    font-size: clamp(1.15rem, 2vw, 1.6rem);
+    letter-spacing: -0.03em;
+  }
+
+  .mode-banner__logo {
+    flex: 0 0 auto;
+    width: 72px;
+    height: auto;
+    display: block;
+    object-fit: contain;
+  }
+
   .intro {
     max-width: 920px;
     color: var(--muted_color);
@@ -283,6 +325,7 @@
     font-weight: 700;
     letter-spacing: -0.03em;
     line-height: 1.1;
+    margin-bottom: 0.8rem;
   }
 
   .sidebar__subtitle {
@@ -382,10 +425,11 @@
   }
 
   .pdf-btn {
-    width: 100%;
-    background: var(--text_color);
-    color: #ffffff;
-    border-color: transparent;
+    width: 50%;
+    margin-inline: auto;
+    background: var(--accent_color);
+    color: var(--accent_ink_color);
+    border-color: var(--accent_color);
     margin-top: 0.65rem;
   }
 
@@ -611,6 +655,16 @@
     margin-bottom: 0;
   }
 
+  .home-screen__title-highlight {
+    display: inline-block;
+    padding: 0 0.12em;
+    border-radius: 0.12em;
+    background: var(--accent_color);
+    color: var(--accent_ink_color);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
   .home-screen__subtitle {
     font-size: clamp(1rem, 1.5vw, 1.2rem);
     max-width: 70ch;
@@ -710,6 +764,10 @@
       padding-left: 0;
     }
 
+    #mainHeader {
+      margin-left: 0;
+    }
+
     header {
       padding-top: 1.25rem;
     }
@@ -734,9 +792,17 @@
     }
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 1640px) {
     .container {
       width: min(calc(100% - 24px), var(--container_width));
+    }
+
+    #mainHeader {
+      padding: 0.85rem 1rem;
+    }
+
+    .mode-banner__logo {
+      width: 110px;
     }
 
     header {

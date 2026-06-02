@@ -40,12 +40,38 @@ function setMode(m){
   .classList.remove("hidden");
 
   document
+  .querySelector(".sidebar")
+  .classList.remove("hidden");
+
+  document
   .getElementById("grid")
   .classList.remove("hidden");
 
   document
   .getElementById("mainHeader")
   .classList.remove("hidden");
+
+  const modeLabel = document.getElementById("modeLabel");
+  const modeTitle = document.getElementById("modeTitle");
+  const modeCopy = {
+    1: {
+      label: "Manche 1",
+      title: "Découvrir des actions d'adaptation",
+    },
+    2: {
+      label: "Manche 2",
+      title: "Elaborer une stratégie d'adaptation",
+    },
+    3: {
+      label: "Manche 3",
+      title: "Une amélioration continue",
+    },
+  };
+
+  if (modeLabel && modeTitle && modeCopy[m]) {
+    modeLabel.textContent = modeCopy[m].label;
+    modeTitle.textContent = modeCopy[m].title;
+  }
 
   const chartCard = document.querySelector(".chart-card h3");
   const canvas = document.getElementById("chart");
@@ -329,5 +355,6 @@ function exportPDF(){
 document.getElementById("dashboard").classList.add("hidden");
 document.getElementById("grid").classList.add("hidden");
 document.getElementById("mainHeader").classList.add("hidden");
+document.querySelector(".sidebar").classList.add("hidden");
 
 mode = 0;

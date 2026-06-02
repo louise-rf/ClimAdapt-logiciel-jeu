@@ -72,48 +72,42 @@
   </div>
 
   <header id="mainHeader">
-    <p class="intro">
-      Prête et prêt à relever les défis du climat ? Place au jeu pour comprendre et s’adapter au changement climatique !
-      Construisez une stratégie d’adaptation climatique en sélectionnant
-      <strong>exactement 15 actions</strong>.
-      Votre objectif est d’obtenir le <strong>meilleur score de résilience (sur 10)</strong>
-      en combinant des actions variées : techniques, organisationnelles, humaines,
-      financières et fondées sur la nature.
-      <br /><br />
-      ⚠️ Certaines décisions peuvent être <strong>mal-adaptées</strong> ou insuffisamment diversifiées.
-      Cherchez un équilibre entre les différents types d’adaptation ⚠️.
-    </p>
+    <div class="mode-banner">
+      <p class="mode-banner__eyebrow" id="modeLabel">Manche 1</p>
+      <div class="mode-banner__row">
+        <h2 class="mode-banner__title" id="modeTitle">Découvrir des actions d'adaptation</h2>
+        <img class="mode-banner__logo" src="images/Akteologo.svg" alt="Akteo">
+      </div>
+    </div>
   </header>
 
   <section id="homeScreen" class="home-screen">
-  <div class="home-screen__content">
+    <div class="home-screen__content">
+      <div class="home-screen__text">
+        <h1 class="home-screen__title">
+          Pilotez la <span class="home-screen__title-highlight">résilience climatique</span><br> de votre organisation
+        </h1>
 
-    <div class="home-screen__text">
-      <h1 class="home-screen__title">
-        Pilotez la résilience climatique de votre organisation
-      </h1>
+        <p class="home-screen__subtitle">
+          Construisez une stratégie d'adaptation climatique robuste
+          en sélectionnant <strong>15 actions d'adaptation</strong> parmi les 5 catégories proposées.
+          Votre objectif est de se rapprocher le plus possible des bonnes pratiques reconnues pour les
+          stratégies d'adaptation. Cela correspondant au <strong>score de 10/10</strong>.
+        </p>
 
-      <p class="home-screen__subtitle">
-        Construisez une stratégie d'adaptation climatique robuste
-        en sélectionnant <strong>15 actions d'adaptation</strong> parmi les 5 catégories proposées.
-        Votre objectif est de se rapprocher le plus possible des bonnes pratiques reconnues pour les
-        stratégies d'adaptation. Cela correspondant au <strong>score de 10/10</strong>.
-      </p>
+        <div class="home-screen__actions">
+          <button class="home-screen__cta" onclick="setMode(1)">
+            Commencer l'atelier
+          </button>
 
-      <div class="home-screen__actions">
-        <button class="home-screen__cta" onclick="setMode(1)">
-          Commencer l'atelier
-        </button>
+          <p class="home-screen__meta">1h - 3 phases</p>
+        </div>
+      </div>
 
-        <p class="home-screen__meta">1h - 3 phases</p>
+      <div class="home-screen__image">
+        <img src="images/env.jpg" alt="env">
       </div>
     </div>
-
-    <div class="home-screen__image">
-      <img src="images/env.jpg" alt="env">
-    </div>
-
-  </div>
   </section>
 
   <div class="container">
