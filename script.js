@@ -589,10 +589,12 @@ const categoryFilterSelect = document.getElementById('categoryFilter');
 let selectedCategory = '';
 
 function formatActionLabel(action){
-  const title = (action.title || '').trim();
-  const description = (action.description || '').trim();
-  const combined = description ? `${title} ${description}` : title;
-  return combined.replace(/\(ex\s*:\s*(.*?)\)/g, '<span class="ex">(ex : $1)</span>');
+  const description =
+    (action.description || '').trim();
+  return description.replace(
+    /\(ex\s*:\s*(.*?)\)/g,
+    '<span class="ex">(ex : $1)</span>'
+  );
 }
 
 const cats=[...new Set(actions.map(a=>a.cat))];
@@ -600,22 +602,30 @@ const cats=[...new Set(actions.map(a=>a.cat))];
 function populateCategoryFilter(){
   if(!categoryFilterSelect) return;
 
-  categoryFilterSelect.innerHTML = cats
-    .map(cat => `<option value="${cat}">${cat}</option>`)
-    .join('');
+  categoryFilterSelect.innerHTML =
+    `<option value="">Tout afficher</option>` +
+    cats
+      .map(cat => `<option value="${cat}">${cat}</option>`)
+      .join('');
 
-  selectedCategory = cats[0] || '';
-  categoryFilterSelect.value = selectedCategory;
+  selectedCategory = '';
+  categoryFilterSelect.value = '';
 }
 
 function applyCategoryFilter(){
-  document.querySelectorAll('.action-category-card').forEach(card => {
 
-    const matchCategory =
-      !selectedCategory || card.dataset.cat === selectedCategory;
+  document
+    .querySelectorAll('.category-section')
+    .forEach(section => {
 
-    card.style.display = matchCategory ? '' : 'none';
-  });
+      const matchCategory =
+        selectedCategory === '' ||
+        section.dataset.cat === selectedCategory;
+
+      section.style.display =
+        matchCategory ? '' : 'none';
+    });
+
 }
 
 function showAllCategoryCards(){
@@ -635,32 +645,55 @@ populateCategoryFilter();
 
 let globalNumber = 1;
 
-cats.forEach(cat=>{
-  const div=document.createElement('div');
-  div.className='card action-category-card';
-  div.dataset.cat = cat;
-  div.innerHTML = `<h3 class="cat-title">${cat}</h3>`;
+cats.forEach(cat => {
+
+  const section = document.createElement("div");
+  section.className = "category-section";
+  section.dataset.cat = cat;
+
+  section.innerHTML = `
+    <h2 class="cat-title">${cat}</h2>
+    <div class="actions-grid"></div>
+  `;
+
+  const actionsGrid = section.querySelector(".actions-grid");
 
   actions
-    .filter(a=>a.cat===cat)
-    .forEach(a=>{
+    .filter(a => a.cat === cat)
+    .forEach(a => {
 
-      div.innerHTML += `
-      <label>
-        <input 
-          type='checkbox' 
-          data-id='${globalNumber}' 
-          data-cat='${a.cat}' 
-          data-tag='${a.tag}'
-        >
-        <strong>${globalNumber}.</strong> ${formatActionLabel(a)}
-      </label>
+      const card = document.createElement("div");
+
+      card.className = "action-card";
+      card.dataset.cat = a.cat;
+
+      card.innerHTML = `
+        <label class="action-card__label">
+          <input
+            type="checkbox"
+            data-id="${globalNumber}"
+            data-cat="${a.cat}"
+            data-tag="${a.tag}"
+          >
+
+          <div class="action-card__content">
+            <div class="action-card__title">
+              <strong>${globalNumber}.</strong> ${a.title}
+            </div>
+
+            <div class="action-card__desc">
+              ${formatActionLabel(a)}
+            </div>
+          </div>
+        </label>
       `;
+
+      actionsGrid.appendChild(card);
 
       globalNumber++;
     });
 
-  grid.appendChild(div);
+  grid.appendChild(section);
 });
 
 applyCategoryFilter();
