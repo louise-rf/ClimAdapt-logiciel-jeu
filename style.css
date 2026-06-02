@@ -163,6 +163,15 @@
 }
 
 @layer components {
+
+  #categoryFilterWrap {
+    display: none;
+  }
+
+  #mainHeader {
+    margin-bottom: 2rem;
+  }
+
   .container {
     width: min(calc(100% - (var(--container_gutter) * 2)), var(--container_width));
     margin: 0 auto;

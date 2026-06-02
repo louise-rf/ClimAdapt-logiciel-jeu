@@ -514,14 +514,15 @@ function setMode(m){
   }
 
   if (categoryFilterWrap) {
-    categoryFilterWrap.style.display = mode === 1 ? "" : "none";
+    categoryFilterWrap.style.display = (m >= 1) ? "flex" : "none";
   }
+
+  applyCategoryFilter();
 
   const chartCard = document.querySelector(".chart-card h3");
   const canvas = document.getElementById("chart");
   const pdfBtn = document.getElementById("pdfBtn");
 
-  // IMPORTANT : reset style titre
   chartCard.classList.remove("future-title");
 
   document.querySelectorAll(".mode-box button").forEach(b=>{
@@ -529,6 +530,8 @@ function setMode(m){
   });
 
   document.querySelectorAll(".mode-box button")[m-1].classList.add("mode-active");
+
+  selectedCategory = categoryFilterSelect.value;
 
   if(mode === 1){
     chartCard.textContent = "À venir ...";
@@ -550,7 +553,7 @@ function setMode(m){
     document.querySelector(".dashboard").classList.remove("manche3");
     if (chartCardEl) chartCardEl.style.display = "";
     if (riskCardEl) riskCardEl.style.display = "";
-    showAllCategoryCards();
+    applyCategoryFilter();
   }
 
   if(mode === 3){
@@ -566,10 +569,11 @@ function setMode(m){
     document.querySelector(".dashboard").classList.add("manche3");
     if (chartCardEl) chartCardEl.style.display = "";
     if (riskCardEl) riskCardEl.style.display = "";
-    showAllCategoryCards();
+    applyCategoryFilter();
   }
 
   updateScore();
+  applyCategoryFilter();
 }
 
 function updateChart(v){
@@ -606,9 +610,11 @@ function populateCategoryFilter(){
 
 function applyCategoryFilter(){
   document.querySelectorAll('.action-category-card').forEach(card => {
-    card.style.display = mode === 1 && selectedCategory && card.dataset.cat !== selectedCategory
-      ? 'none'
-      : '';
+
+    const matchCategory =
+      !selectedCategory || card.dataset.cat === selectedCategory;
+
+    card.style.display = matchCategory ? '' : 'none';
   });
 }
 
@@ -785,7 +791,11 @@ function resetGame(){
   updateScore();
 }
 
-document.addEventListener('change', updateScore);
+document.addEventListener('change', (e) => {
+  if (e.target.matches('#grid input[type="checkbox"]')) {
+    updateScore();
+  }
+});
 
 initChart();
 updateScore();
