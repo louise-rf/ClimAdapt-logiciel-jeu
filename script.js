@@ -199,6 +199,9 @@ function setMode(m){
     chartCard.textContent = "À venir ...";
     chartCard.classList.add("future-title");
     canvas.style.display = "none";
+    document
+      .getElementById("finalAnalysis")
+      .classList.add("hidden");
     pdfBtn.classList.add("pdf-hidden");
     document.getElementById("criteriaBox").style.display = "none";
     document.querySelector(".dashboard").classList.remove("manche3");
@@ -210,24 +213,36 @@ function setMode(m){
   if(mode === 2){
     chartCard.textContent = "Évolution du score";
     canvas.style.display = "block";
+    canvas.classList.remove("hidden-chart");
+    document.getElementById("finalAnalysis").classList.add("hidden");
     pdfBtn.classList.add("pdf-hidden");
     document.getElementById("criteriaBox").style.display = "none";
     document.querySelector(".dashboard").classList.remove("manche3");
+
     if (chartCardEl) chartCardEl.style.display = "";
     if (riskCardEl) riskCardEl.style.display = "";
+
     applyCategoryFilter();
+
+    setTimeout(() => {
+      if (chart) {
+        chart.resize();
+        chart.update();
+      }
+    }, 0);
   }
 
   if(mode === 3){
     chartCard.textContent = "Analyse finale";
-    canvas.style.display = "block";
+    canvas.classList.add("hidden-chart");
+
+    document
+      .getElementById("finalAnalysis")
+      .classList.remove("hidden");
+
     pdfBtn.classList.remove("pdf-hidden");
 
-    history = [0];
-    chart.destroy();
-    initChart();
-
-    document.getElementById("criteriaBox").style.display = "block";
+    document.getElementById("criteriaBox").style.display = "none";
     document.querySelector(".dashboard").classList.add("manche3");
     if (chartCardEl) chartCardEl.style.display = "";
     if (riskCardEl) riskCardEl.style.display = "";
@@ -239,12 +254,15 @@ function setMode(m){
 }
 
 function updateChart(v){
-if(mode === 1) return;
-history.push(v);
-chart.data.labels=history.map((_,i)=>i);
-chart.data.datasets[0].data=history;
-chart.update();
-}
+
+  if(mode !== 2) return;
+
+  history.push(v);
+  chart.data.labels=history.map((_,i)=>i);
+  chart.data.datasets[0].data=history;
+  chart.update();
+
+  }
 
 const grid=document.getElementById('grid');
 const categoryFilterSelect = document.getElementById('categoryFilter');
@@ -371,6 +389,43 @@ cats.forEach(cat => {
 
 applyCategoryFilter();
 
+function updateFinalAnalysis(criteria){
+
+  const axis1 = (
+    criteria[4] +
+    criteria[5]
+  ) / 2 * 100;
+
+  const axis2 = (
+    criteria[1] +
+    criteria[2]
+  ) / 2 * 100;
+
+  const axis3 = (
+    criteria[3] +
+    criteria[6] +
+    criteria[8] +
+    criteria[10]
+  ) / 4 * 100;
+
+  const axis4 = (
+    criteria[7] +
+    criteria[9]
+  ) / 2 * 100;
+
+  document.getElementById("axis1Fill").style.width =
+    axis1 + "%";
+
+  document.getElementById("axis2Fill").style.width =
+    axis2 + "%";
+
+  document.getElementById("axis3Fill").style.width =
+    axis3 + "%";
+
+  document.getElementById("axis4Fill").style.width =
+    axis4 + "%";
+}
+
 function updateScore(){
 
 const sel = [
@@ -387,15 +442,29 @@ const catsSel = [
 
 let score = 0;
 
+const criteria = {
+  1:false,
+  2:false,
+  3:false,
+  4:false,
+  5:false,
+  6:false,
+  7:false,
+  8:false,
+  9:false,
+  10:false
+};
+
 /* Diversification adaptation */
-if(tags.includes(1)) score++;
-if(tags.includes(2)) score++;
-if(tags.includes(3)) score++;
-if(tags.includes(4)) score++;
+if(tags.includes(1)){ score++; criteria[1] = true;}
+if(tags.includes(2)){ score++; criteria[2] = true;}
+if(tags.includes(3)){ score++; criteria[3] = true;}
+if(tags.includes(4)){ score++; criteria[4] = true;}
 
 /* Gestion de crise */
 if(tags.filter(t => t === 5).length > 1){
   score++;
+  criteria[5] = true;
 }
 
 /* Solutions fondées nature */
@@ -412,18 +481,20 @@ if(
   nature / ((nature + tech) || 1) >= 0.5
 ){
   score++;
+  criteria[6] = true;
 }
 
 /* Suivi / indicateurs */
-if(tags.includes(7)) score++;
+if(tags.includes(7)){ score++; criteria[7] = true;}
 
 /* Robustesse sans maladaptation */
 if(tags.includes(8) && !tags.includes(9)){
   score++;
+  criteria[8] = true;
 }
 
 /* Gouvernance / compétences */
-if(tags.includes(10)) score++;
+if(tags.includes(10)){ score++; criteria[9] = true;}
 
 /* Diversité des catégories */
 const needed = [
@@ -436,6 +507,7 @@ const needed = [
 
 if(needed.every(c => catsSel.includes(c))){
   score++;
+  criteria[10] = true;
 }
 
 score = Math.max(0, Math.min(10, score));
@@ -469,6 +541,7 @@ document.getElementById('count').textContent = sel.length;
 /* message 15 actions */
 updateChart(score);
 
+updateFinalAnalysis(criteria);
 const summary = document.getElementById("summaryText");
 
 const numbers = sel.map(x => x.dataset.id);
