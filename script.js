@@ -198,7 +198,7 @@ function setMode(m){
   if(mode === 1){
     chartCard.textContent = "À venir ...";
     chartCard.classList.add("future-title");
-    canvas.style.display = "none";
+    canvas.classList.add("hidden-chart");
     document
       .getElementById("finalAnalysis")
       .classList.add("hidden");
@@ -212,7 +212,7 @@ function setMode(m){
 
   if(mode === 2){
     chartCard.textContent = "Évolution du score";
-    canvas.style.display = "block";
+    canvas.style.removeProperty("display");
     canvas.classList.remove("hidden-chart");
     document.getElementById("finalAnalysis").classList.add("hidden");
     pdfBtn.classList.add("pdf-hidden");
