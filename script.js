@@ -1,9 +1,92 @@
-let mode = 0; // 1 = manche 1, 2 = manche 2, 3 = manche 3
+﻿let mode = 0; // 1 = manche 1, 2 = manche 2, 3 = manche 3
 
 let actions = [];
 
 let history=[0];
 let chart;
+const actionsCsvPath =
+  document.body?.dataset.actionsCsv || "actions_selection.csv";
+
+function normalizeTextKey(value) {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (next === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+      continue;
+    }
+
+    if (char === ",") {
+      row.push(field);
+      field = "";
+      continue;
+    }
+
+    if (char === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      continue;
+    }
+
+    if (char !== "\r") {
+      field += char;
+    }
+  }
+
+  row.push(field);
+  rows.push(row);
+
+  return rows.filter((currentRow) =>
+    currentRow.some((cell) => cell.trim() !== "")
+  );
+}
+
+function normalizeResourceCategory(category) {
+  const cleaned = normalizeTextKey((category || "").replace(/^Ressources\s+/i, ""));
+
+  const canonicalByKey = {
+    technique: "Ressources Techniques",
+    techniques: "Ressources Techniques",
+    humaines: "Ressources Humaines",
+    organisationnelles: "Ressources Organisationnelles",
+    financieres: "Ressources Financières",
+    "solutions fondees sur la nature": "Ressources Solutions fondées sur la Nature",
+  };
+
+  return canonicalByKey[cleaned] || `Ressources ${category.trim()}`;
+}
 
 function initChart(){
 const ctx=document.getElementById('chart');
@@ -29,30 +112,48 @@ options:{
 }
 
 async function loadActionsFromCSV() {
-  const response = await fetch("https://louise-rf.github.io/ClimAdapt-logiciel-jeu/actions.csv");
+  const response = await fetch(new URL(actionsCsvPath, window.location.href));
   const csvText = await response.text();
 
-  const lines = csvText
-    .split("\n")
-    .map(l => l.trim())
-    .filter(l => l.length > 0)
-    .slice(1);
+  const rows = parseCSV(csvText);
+  const headers = rows.shift() || [];
+  const headerIndex = new Map(
+    headers.map((header, index) => [
+      normalizeTextKey(header.replace(/^\uFEFF/, "")),
+      index,
+    ])
+  );
 
-  actions = lines.map((line, index) => {
-    const cols = line.split(",");
+  const getCell = (row, possibleHeaders) => {
+    for (const header of possibleHeaders) {
+      const index = headerIndex.get(normalizeTextKey(header));
+      if (index !== undefined) {
+        return row[index]?.trim() || "";
+      }
+    }
+    return "";
+  };
+
+  actions = rows.map((row, index) => {
+    const category = normalizeResourceCategory(
+      getCell(row, ["Cat", "Categorie ressources"])
+    );
 
     return {
       id: index + 1,
-      title: cols[0]?.trim(),
-      description: cols[1]?.trim(),
-      cat: cols[2]?.trim(),
-      tag: Number(cols[3]?.trim())
+      title: getCell(row, [
+        "Titre",
+        "Titre de l'action",
+        "Titre de l'action d'adaptation",
+      ]),
+      description: getCell(row, ["Exemple"]),
+      cat: category,
+      tag: Number(getCell(row, ["Tag", "Score"])),
     };
   });
 
   startApp();
 }
-
 function startApp() {
 
   const cats = [...new Set(
@@ -676,3 +777,5 @@ document.getElementById("mainHeader").classList.add("hidden");
 document.querySelector(".sidebar").classList.add("hidden");
 
 mode = 0;
+
+
