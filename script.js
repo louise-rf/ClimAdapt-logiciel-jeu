@@ -188,31 +188,7 @@ function startApp() {
         card.className = "action-card";
         card.dataset.cat = a.cat;
 
-        card.innerHTML = `
-        <input
-          class="action-checkbox"
-          type="checkbox"
-          data-id="${globalNumber}"
-          data-cat="${a.cat}"
-          data-tag="${a.tag}"
-        >
-
-        <div class="action-card__content">
-
-          <div class="action-card__title">
-            <strong>${globalNumber}.</strong> ${a.title}
-          </div>
-
-          <div class="action-card__desc">
-            ${formatActionLabel(a)}
-          </div>
-
-          <button type="button" class="select-btn">
-            Sélectionner
-          </button>
-
-        </div>
-        `;
+        card.innerHTML = buildActionCardMarkup(a, globalNumber);
 
         actionsGrid.appendChild(card);
         globalNumber++;
@@ -378,6 +354,49 @@ function formatActionLabel(action){
   );
 }
 
+function buildActionCardMarkup(action, number) {
+  return `
+    <div class="action-card__inner">
+      <div class="action-card__face action-card__face--front">
+        <input
+          class="action-checkbox"
+          type="checkbox"
+          data-id="${number}"
+          data-cat="${action.cat}"
+          data-tag="${action.tag}"
+        >
+
+        <div class="action-card__content">
+          <div class="action-card__title">
+            <strong>${number}.</strong> ${action.title}
+          </div>
+
+          <button type="button" class="action-card__flip-btn">
+            En savoir plus ...
+          </button>
+
+          <button type="button" class="select-btn">
+            Sélectionner
+          </button>
+        </div>
+      </div>
+
+      <div class="action-card__face action-card__face--back">
+        <div class="action-card__back-copy">
+          <div class="action-card__back-title">Exemple</div>
+          <div class="action-card__desc">
+            ${formatActionLabel(action)}
+          </div>
+        </div>
+
+        <button type="button" class="action-card__back-btn">
+          Retour
+        </button>
+      </div>
+    </div>
+  `;
+}
+
 const cats=[...new Set(actions.map(a=>a.cat))];
 
 function populateCategoryFilter(){
@@ -451,34 +470,7 @@ cats.forEach(cat => {
       card.className = "action-card";
       card.dataset.cat = a.cat;
 
-      card.innerHTML = `
-      <input
-        class="action-checkbox"
-        type="checkbox"
-        data-id="${globalNumber}"
-        data-cat="${a.cat}"
-        data-tag="${a.tag}"
-      >
-    
-      <div class="action-card__content">
-    
-        <div class="action-card__title">
-          <strong>${globalNumber}.</strong> ${a.title}
-        </div>
-    
-        <div class="action-card__desc">
-          ${formatActionLabel(a)}
-        </div>
-    
-        <button
-          type="button"
-          class="select-btn"
-        >
-          Sélectionner
-        </button>
-    
-      </div>
-    `;
+      card.innerHTML = buildActionCardMarkup(a, globalNumber);
 
       actionsGrid.appendChild(card);
 
@@ -667,6 +659,7 @@ function resetGame() {
     checkbox.checked = false;
 
     card.classList.remove('selected');
+    card.classList.remove('is-flipped');
 
     button.textContent = 'Sélectionner';
 
@@ -688,6 +681,17 @@ document.addEventListener('change', (e) => {
 });
 
 document.addEventListener('click', (e) => {
+  const flipButton = e.target.closest('.action-card__flip-btn');
+  const backButton = e.target.closest('.action-card__back-btn');
+
+  if (flipButton || backButton) {
+    const card = e.target.closest('.action-card');
+    if (card) {
+      card.classList.toggle('is-flipped', Boolean(flipButton));
+    }
+    return;
+  }
+
   if (!e.target.classList.contains('select-btn')) {
     return;
   }

@@ -290,12 +290,12 @@
     border: 2px solid var(--border_color);
     border-radius: var(--radius_md);
     background: var(--surface_color);
-    padding: 0.75rem;
+    padding: 0;
     height: 100%;
+    overflow: hidden;
+    perspective: 1200px;
     transition: all 0.2s ease;
     display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
   }
 
 
@@ -327,6 +327,36 @@
     margin-top: 0.3rem;
   }
 
+  .action-card__inner {
+    position: relative;
+    display: grid;
+    width: 100%;
+    min-height: 100%;
+    transform-style: preserve-3d;
+    transition: transform 0.5s ease;
+  }
+
+  .action-card.is-flipped .action-card__inner {
+    transform: rotateY(180deg);
+  }
+
+  .action-card__face {
+    grid-area: 1 / 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-height: 100%;
+    padding: 0.75rem;
+    background: var(--surface_color);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  .action-card__face--back {
+    transform: rotateY(180deg);
+    justify-content: space-between;
+  }
+
   .action-card__content {
     display: flex;
     flex-direction: column;
@@ -343,6 +373,40 @@
     font-size: 0.9rem;
     color: var(--muted_color);
     line-height: 1.4;
+  }
+
+  .action-card__back-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .action-card__back-title {
+    color: var(--muted_color);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .action-card__flip-btn {
+    background: var(--surface_color);
+    color: var(--text_color);
+    border: 1px solid var(--muted_color);
+    align-self: flex-start;
+    padding: 0.45rem 0.9rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
+  .action-card__back-btn {
+    align-self: flex-start;
+    background: transparent;
+    color: var(--muted_color);
+    border-color: var(--border_color);
+    padding: 0.45rem 0.9rem;
+    font-size: 0.82rem;
+    font-weight: 600;
   }
 
   .select-btn {
