@@ -203,6 +203,10 @@ function startApp() {
 }
 
 function setMode(m){
+  if (m === 2 || m === 3) {
+    resetGame(true);
+  }
+
   mode = m;
 
   document
@@ -645,9 +649,9 @@ Actions : ${numbers.join(", ")}
 
 }
 
-function resetGame() {
+function resetGame(resetChart = false) {
 
-  if (mode === 0) {
+  if (mode === 0 && !resetChart) {
     return;
   }
 
@@ -665,9 +669,11 @@ function resetGame() {
 
   });
 
-  if (mode === 2 || mode === 3) {
+  if (resetChart || mode === 2 || mode === 3) {
     history = [0];
-    chart.destroy();
+    if (chart) {
+      chart.destroy();
+    }
     initChart();
   }
 

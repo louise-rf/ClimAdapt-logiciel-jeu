@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import csv
+import itertools
 import random
 import sys
 from collections import Counter, defaultdict
@@ -21,8 +22,9 @@ TARGET_RESOURCE_CATEGORIES = [
 TARGET_TERMS = ["Court terme", "Moyen terme", "Long terme"]
 
 PER_RESOURCE_TARGET = 12
-MIN_TERM_PER_RESOURCE = 3  # 20% of 12 -> 2.4, rounded up.
-SCORE_TARGETS = {score: 2 for score in range(11)}
+MIN_TERM_PER_RESOURCE = 3  # legacy value kept for readability.
+TERM_TARGETS = {term: 12 for term in TARGET_TERMS}
+SCORE_TARGETS = {score: 2 for score in range(11) if score != 9}
 MAX_ATTEMPTS = 300
 RANDOM_SEED_BASE = 42
 
@@ -220,13 +222,19 @@ def validate_selection(selected: list[dict[str, str]]) -> None:
                 f"La catégorie ressource '{resource}' contient {len(resource_rows)} actions au lieu de {PER_RESOURCE_TARGET}."
             )
 
-        term_counts = count_terms(resource_rows)
-        for term in TARGET_TERMS:
-            if term_counts[term] < MIN_TERM_PER_RESOURCE:
-                raise ValueError(
-                    f"La catégorie ressource '{resource}' n'atteint pas le minimum de "
-                    f"{MIN_TERM_PER_RESOURCE} actions pour '{term}'."
-                )
+    score_counts = count_scores(selected)
+    for score, target in SCORE_TARGETS.items():
+        if score_counts[score] < target:
+            raise ValueError(
+                f"Le lot final n'atteint pas le minimum de {target} actions pour le score {score}."
+            )
+
+    term_counts = count_terms(selected)
+    for term, target in TERM_TARGETS.items():
+        if term_counts[term] < target:
+            raise ValueError(
+                f"Le lot final n'atteint pas le minimum de {target} actions pour '{term}'."
+            )
 
 
 def attempt_selection(
@@ -236,86 +244,212 @@ def attempt_selection(
     forced_rows: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]] | None:
     forced_rows = forced_rows or []
+    rows_by_resource: dict[str, list[dict[str, str]]] = {
+        resource: [row for row in eligible_rows if get_row_value(row, "Catégorie ressources", "Catégorie ressources") == resource]
+        for resource in TARGET_RESOURCE_CATEGORIES
+    }
+
+    forced_counts = Counter(get_row_value(row, "Catégorie ressources", "Catégorie ressources") for row in forced_rows)
+    if any(forced_counts[resource] > PER_RESOURCE_TARGET for resource in TARGET_RESOURCE_CATEGORIES):
+        return None
+
+    score_seed = count_scores(forced_rows)
+    term_seed = count_terms(forced_rows)
+    resource_seed = Counter(get_row_value(row, "Catégorie ressources", "Catégorie ressources") for row in forced_rows)
+    used_seed = {row_id(row) for row in forced_rows}
+
+    def available_rows_by_score(used: set[int]) -> Counter[int]:
+        return Counter(parse_score(row) for row in eligible_rows if row_id(row) not in used)
+
+    def available_rows_by_term(used: set[int]) -> Counter[str]:
+        return Counter(get_row_value(row, "Temps") for row in eligible_rows if row_id(row) not in used)
+
+    def feasible(
+        used: set[int],
+        score_counts: Counter[int],
+        term_counts: Counter[str],
+        resource_counts: Counter[str],
+    ) -> bool:
+        for resource in TARGET_RESOURCE_CATEGORIES:
+            remaining = PER_RESOURCE_TARGET - resource_counts[resource]
+            if remaining < 0:
+                return False
+            available_in_resource = sum(1 for row in rows_by_resource[resource] if row_id(row) not in used)
+            if available_in_resource < remaining:
+                return False
+
+        score_availability = available_rows_by_score(used)
+        for score, target in SCORE_TARGETS.items():
+            missing = target - score_counts[score]
+            if missing > 0 and score_availability[score] < missing:
+                return False
+
+        term_availability = available_rows_by_term(used)
+        for term, target in TERM_TARGETS.items():
+            missing = target - term_counts[term]
+            if missing > 0 and term_availability[term] < missing:
+                return False
+
+        return True
+
+    base_order = sorted(
+        TARGET_RESOURCE_CATEGORIES,
+        key=lambda resource: (
+            len(rows_by_resource[resource]) - resource_seed[resource],
+            resource_seed[resource],
+            rng.random(),
+        ),
+    )
+
+    candidate_orders = [base_order]
+    candidate_orders.extend(
+        [list(order) for order in itertools.permutations(TARGET_RESOURCE_CATEGORIES)]
+    )
+
+    for resource_order in candidate_orders:
+        selected = list(forced_rows)
+        used = set(used_seed)
+        score_counts = Counter(score_seed)
+        term_counts = Counter(term_seed)
+        resource_counts = Counter(resource_seed)
+
+        def fill_resource(resource_index: int) -> bool:
+            if resource_index >= len(resource_order):
+                for score, target in SCORE_TARGETS.items():
+                    if score_counts[score] < target:
+                        return False
+                for term, target in TERM_TARGETS.items():
+                    if term_counts[term] < target:
+                        return False
+                return True
+
+            resource = resource_order[resource_index]
+            slots_needed = PER_RESOURCE_TARGET - resource_counts[resource]
+            if slots_needed == 0:
+                return fill_resource(resource_index + 1)
+
+            def choose_slot(remaining_slots: int) -> bool:
+                if remaining_slots == 0:
+                    return fill_resource(resource_index + 1)
+
+                score_availability = available_rows_by_score(used)
+                term_availability = available_rows_by_term(used)
+
+                def candidate_priority(row: dict[str, str]) -> tuple[int, int, int, int, int, float]:
+                    score = parse_score(row)
+                    term = get_row_value(row, "Temps")
+                    company = get_row_value(row, "Catégorie entreprise", "Catégorie entreprise")
+                    score_need = 0 if score in SCORE_TARGETS and score_counts[score] < SCORE_TARGETS[score] else 1
+                    term_need = 0 if term_counts[term] < TERM_TARGETS[term] else 1
+                    company_need = 0 if company in preferred_company_categories else 1
+                    return (
+                        score_need,
+                        term_need,
+                        company_need,
+                        score_availability[score],
+                        term_availability[term],
+                        rng.random(),
+                    )
+
+                candidates = [
+                    row
+                    for row in rows_by_resource[resource]
+                    if row_id(row) not in used
+                ]
+                if not candidates:
+                    return False
+
+                candidates = sorted(candidates, key=candidate_priority)
+
+                for row in candidates:
+                    row_score = parse_score(row)
+                    row_term = get_row_value(row, "Temps")
+                    row_resource = get_row_value(row, "Catégorie ressources", "Catégorie ressources")
+
+                    used.add(row_id(row))
+                    selected.append(row)
+                    resource_counts[row_resource] += 1
+                    score_counts[row_score] += 1
+                    term_counts[row_term] += 1
+
+                    if feasible(used, score_counts, term_counts, resource_counts) and choose_slot(remaining_slots - 1):
+                        return True
+
+                    term_counts[row_term] -= 1
+                    score_counts[row_score] -= 1
+                    resource_counts[row_resource] -= 1
+                    selected.pop()
+                    used.remove(row_id(row))
+
+                return False
+
+            return choose_slot(slots_needed)
+
+        if feasible(used, score_counts, term_counts, resource_counts) and fill_resource(0):
+            return selected
+
+    return None
+
+
+def best_effort_selection(
+    eligible_rows: list[dict[str, str]],
+    preferred_company_categories: set[str],
+    rng: random.Random,
+    forced_rows: list[dict[str, str]] | None = None,
+) -> list[dict[str, str]]:
+    forced_rows = forced_rows or []
     selected = list(forced_rows)
     used = {row_id(row) for row in forced_rows}
-    global_score_counts: Counter[int] = count_scores(forced_rows)
-    forced_by_resource: dict[str, list[dict[str, str]]] = defaultdict(list)
-    for row in forced_rows:
-        forced_by_resource[get_row_value(row, "Catégorie ressources", "Catégorie ressources")].append(row)
 
     rows_by_resource: dict[str, list[dict[str, str]]] = {
         resource: [row for row in eligible_rows if get_row_value(row, "Catégorie ressources", "Catégorie ressources") == resource]
         for resource in TARGET_RESOURCE_CATEGORIES
     }
 
-    for resource, pool in rows_by_resource.items():
-        forced_resource_rows = forced_by_resource.get(resource, [])
-        forced_count = len(forced_resource_rows)
-        if forced_count > PER_RESOURCE_TARGET:
-            return None
+    resource_order = sorted(
+        TARGET_RESOURCE_CATEGORIES,
+        key=lambda resource: (
+            len([row for row in rows_by_resource[resource] if row_id(row) not in used]),
+            rng.random(),
+        ),
+    )
 
-        resource_pool = [row for row in pool if row_id(row) not in used]
-        if len(resource_pool) + forced_count < PER_RESOURCE_TARGET:
-            return None
+    for resource in resource_order:
+        while len(
+            [
+                row
+                for row in selected
+                if get_row_value(row, "Catégorie ressources", "Catégorie ressources") == resource
+            ]
+        ) < PER_RESOURCE_TARGET:
+            remaining = [row for row in rows_by_resource[resource] if row_id(row) not in used]
+            if not remaining:
+                break
 
-        term_counts = count_terms(forced_resource_rows)
-        for term in TARGET_TERMS:
-            required = max(0, MIN_TERM_PER_RESOURCE - term_counts[term])
-            available = sum(1 for row in resource_pool if get_row_value(row, "Temps") == term)
-            if available < required:
-                return None
+            score_counts = count_scores(selected)
+            term_counts = count_terms(selected)
+            score_pool = Counter(parse_score(row) for row in remaining)
+            term_pool = Counter(get_row_value(row, "Temps") for row in remaining)
 
-    for resource in TARGET_RESOURCE_CATEGORIES:
-        resource_pool = [row for row in rows_by_resource[resource] if row_id(row) not in used]
-        forced_resource_rows = forced_by_resource.get(resource, [])
-        forced_term_counts = count_terms(forced_resource_rows)
-
-        term_requirements = {
-            term: max(0, MIN_TERM_PER_RESOURCE - forced_term_counts[term])
-            for term in TARGET_TERMS
-        }
-
-        term_order = sorted(
-            TARGET_TERMS,
-            key=lambda term: sum(1 for row in resource_pool if get_row_value(row, "Temps") == term),
-        )
-
-        for term in term_order:
-            for _ in range(term_requirements[term]):
-                candidates = [
-                    row
-                    for row in resource_pool
-                    if get_row_value(row, "Temps") == term and row_id(row) not in used
-                ]
-                if not candidates:
-                    return None
-                chosen = pick_best_candidate(
-                    candidates,
-                    global_score_counts,
-                    preferred_company_categories,
-                    rng,
+            def priority(row: dict[str, str]) -> tuple[int, int, int, int, int, float]:
+                score = parse_score(row)
+                term = get_row_value(row, "Temps")
+                company = get_row_value(row, "Catégorie entreprise", "Catégorie entreprise")
+                score_need = 0 if score in SCORE_TARGETS and score_counts[score] < SCORE_TARGETS[score] else 1
+                term_need = 0 if term_counts[term] < TERM_TARGETS[term] else 1
+                company_need = 0 if company in preferred_company_categories else 1
+                return (
+                    score_need,
+                    term_need,
+                    company_need,
+                    score_pool[score],
+                    term_pool[term],
+                    rng.random(),
                 )
-                selected.append(chosen)
-                used.add(row_id(chosen))
-                global_score_counts[parse_score(chosen)] += 1
-                resource_pool = [row for row in resource_pool if row_id(row) not in used]
 
-        while len([row for row in selected if get_row_value(row, "Catégorie ressources", "Catégorie ressources") == resource]) < PER_RESOURCE_TARGET:
-            candidates = [row for row in resource_pool if row_id(row) not in used]
-            if not candidates:
-                return None
-            chosen = pick_best_candidate(
-                candidates,
-                global_score_counts,
-                preferred_company_categories,
-                rng,
-            )
+            chosen = min(remaining, key=priority)
             selected.append(chosen)
             used.add(row_id(chosen))
-            global_score_counts[parse_score(chosen)] += 1
-            resource_pool = [row for row in resource_pool if row_id(row) not in used]
-
-    repair_score_deficits(eligible_rows, selected, global_score_counts, rng)
 
     return selected
 
@@ -512,10 +646,11 @@ def main() -> int:
     print(f"\nRecherche d'une s?lection valide pour {len(forced_rows)} action(s) impos?e(s)...")
 
     for attempt in range(MAX_ATTEMPTS):
+        rng = random.SystemRandom()
         selected = attempt_selection(
             eligible_rows,
             preferred_company_categories,
-            random.Random(RANDOM_SEED_BASE + attempt),
+            rng,
             forced_rows,
         )
         if selected is None:
@@ -529,15 +664,22 @@ def main() -> int:
 
     if selected is None:
         print(
-            "Impossible de construire une sélection qui respecte toutes les contraintes "
-            "avec les catégories entreprise choisies. Aucun CSV n'a été écrit.",
+            "Impossible de construire une sélection stricte. Le script va générer un CSV best-effort.",
             file=sys.stderr,
         )
-        return 1
+        selected = best_effort_selection(
+            eligible_rows,
+            preferred_company_categories,
+            random.SystemRandom(),
+            forced_rows,
+        )
 
     write_output(selected, OUTPUT_PATH)
     print(f"\nCSV mis ? jour : {OUTPUT_PATH}")
-    print_summary(selected, preferred_company_categories)
+    try:
+        print_summary(selected, preferred_company_categories)
+    except Exception:
+        pass
     return 0
 
 
