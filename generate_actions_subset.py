@@ -4,6 +4,7 @@ import csv
 import itertools
 import random
 import sys
+import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -20,11 +21,26 @@ TARGET_RESOURCE_CATEGORIES = [
 ]
 
 TARGET_TERMS = ["Court terme", "Moyen terme", "Long terme"]
+TARGET_HAZARDS = [
+    "Fortes pluies",
+    "Inondation pluie",
+    "Inondation fluviale",
+    "Inondation nappe",
+    "Stress Hydrique",
+    "Vague de chaleur",
+    "Chaleur extrême",
+    "Modif T° air",
+    "Tempêtes",
+    "Vague de gel",
+    "RGA",
+]
+UNIVERSAL_HAZARD_LABEL = "Tous aléas climatiques"
 
 PER_RESOURCE_TARGET = 12
 MIN_TERM_PER_RESOURCE = 3  # legacy value kept for readability.
 TERM_TARGETS = {term: 12 for term in TARGET_TERMS}
 SCORE_TARGETS = {score: 2 for score in range(11) if score != 9}
+PER_HAZARD_MIN_TARGET = 1
 MAX_ATTEMPTS = 300
 RANDOM_SEED_BASE = 42
 
@@ -40,6 +56,39 @@ def get_row_value(row: dict[str, str], *keys: str, default: str = "") -> str:
         if value is not None and value.strip():
             return value.strip()
     return default
+
+
+def normalize_text(value: str) -> str:
+    value = unicodedata.normalize("NFKD", value)
+    value = value.encode("ascii", "ignore").decode("ascii")
+    value = value.lower().replace("’", "'")
+    value = value.replace("°", " deg ")
+    value = " ".join(value.replace("/", " / ").split())
+    return value
+
+
+NORMALIZED_HAZARD_MAP = {
+    normalize_text(hazard): hazard for hazard in TARGET_HAZARDS
+}
+NORMALIZED_UNIVERSAL_HAZARD = normalize_text(UNIVERSAL_HAZARD_LABEL)
+
+
+def get_row_hazards(row: dict[str, str]) -> set[str]:
+    raw_value = get_row_value(row, "Aléa climatique visé", "Alea climatique vise")
+    if not raw_value:
+        return set()
+
+    normalized_raw = normalize_text(raw_value)
+    if normalized_raw == NORMALIZED_UNIVERSAL_HAZARD:
+        return set(TARGET_HAZARDS)
+
+    hazards: set[str] = set()
+    for part in raw_value.split("/"):
+        normalized_part = normalize_text(part.strip())
+        canonical = NORMALIZED_HAZARD_MAP.get(normalized_part)
+        if canonical:
+            hazards.add(canonical)
+    return hazards
 
 
 def get_unique_company_categories(rows: list[dict[str, str]]) -> list[tuple[str, int]]:
@@ -91,6 +140,47 @@ def prompt_company_categories(available: list[tuple[str, int]]) -> list[str]:
             return deduped
 
 
+def prompt_target_hazards() -> list[str]:
+    print("\nAléas climatiques disponibles :")
+    for index, hazard in enumerate(TARGET_HAZARDS, start=1):
+        print(f"{index:>2}. {hazard}")
+
+    while True:
+        raw = input(
+            "\nChoisis exactement 3 aléas par numéro, séparés par des virgules : "
+        ).strip()
+        if not raw:
+            print("Entrée vide. Réessaie.")
+            continue
+
+        try:
+            indexes = [int(part.strip()) for part in raw.split(",") if part.strip()]
+        except ValueError:
+            print("Format invalide. Utilise des numéros séparés par des virgules.")
+            continue
+
+        if len(indexes) != 3:
+            print("Il faut sélectionner exactement 3 aléas.")
+            continue
+
+        if len(set(indexes)) != 3:
+            print("Chaque aléa doit être sélectionné une seule fois.")
+            continue
+
+        invalid = [index for index in indexes if index < 1 or index > len(TARGET_HAZARDS)]
+        if invalid:
+            print("Numéro(s) hors plage : " + ", ".join(map(str, invalid)))
+            continue
+
+        selected = [TARGET_HAZARDS[index - 1] for index in indexes]
+        print("\nAléas retenus :")
+        for hazard in selected:
+            print(f"- {hazard}")
+        confirm = input("\nConfirmer ? [o/N] : ").strip().lower()
+        if confirm in {"o", "oui", "y", "yes"}:
+            return selected
+
+
 def get_action_title(row: dict[str, str]) -> str:
     for key in (
         "Titre de l’action d’adaptation",
@@ -105,7 +195,7 @@ def get_action_title(row: dict[str, str]) -> str:
     return "(sans titre)"
 
 
-def prompt_forced_actions(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+def prompt_forced_actions(rows: list[dict[str, str]], selected_hazards: set[str]) -> list[dict[str, str]]:
     max_line = len(rows) + 1
 
     while True:
@@ -141,10 +231,14 @@ def prompt_forced_actions(rows: list[dict[str, str]]) -> list[dict[str, str]]:
 
         forced_rows: list[dict[str, str]] = []
         invalid_resources: list[int] = []
+        invalid_hazards: list[int] = []
         for line in line_numbers:
             row = rows[line - 2]
             if get_row_value(row, "Catégorie ressources", "Catégorie ressources") not in TARGET_RESOURCE_CATEGORIES:
                 invalid_resources.append(line)
+                continue
+            if not (get_row_hazards(row) & selected_hazards):
+                invalid_hazards.append(line)
                 continue
             forced_rows.append(row)
 
@@ -153,6 +247,13 @@ def prompt_forced_actions(rows: list[dict[str, str]]) -> list[dict[str, str]]:
                 "Ces lignes ne peuvent pas être imposées car elles ne sont pas dans les "
                 "catégories de ressources ciblées : "
                 + ", ".join(map(str, invalid_resources))
+            )
+            continue
+
+        if invalid_hazards:
+            print(
+                "Ces lignes ne peuvent pas être imposées car elles ne répondent à aucun des 3 aléas retenus : "
+                + ", ".join(map(str, invalid_hazards))
             )
             continue
 
@@ -184,6 +285,14 @@ def count_terms(rows: list[dict[str, str]]) -> Counter[str]:
     return Counter(get_row_value(row, "Temps") for row in rows)
 
 
+def count_target_hazards(rows: list[dict[str, str]], selected_hazards: set[str]) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        for hazard in get_row_hazards(row) & selected_hazards:
+            counts[hazard] += 1
+    return counts
+
+
 def pick_best_candidate(
     candidates: list[dict[str, str]],
     score_deficits: Counter[int],
@@ -204,7 +313,7 @@ def pick_best_candidate(
     return rng.choice(best_candidates)
 
 
-def validate_selection(selected: list[dict[str, str]]) -> None:
+def validate_selection(selected: list[dict[str, str]], selected_hazards: set[str]) -> None:
     if len(selected) != PER_RESOURCE_TARGET * len(TARGET_RESOURCE_CATEGORIES):
         raise ValueError(
             f"Le lot final contient {len(selected)} actions au lieu de "
@@ -236,10 +345,18 @@ def validate_selection(selected: list[dict[str, str]]) -> None:
                 f"Le lot final n'atteint pas le minimum de {target} actions pour '{term}'."
             )
 
+    hazard_counts = count_target_hazards(selected, selected_hazards)
+    for hazard in selected_hazards:
+        if hazard_counts[hazard] < PER_HAZARD_MIN_TARGET:
+            raise ValueError(
+                f"Le lot final n'atteint pas le minimum de {PER_HAZARD_MIN_TARGET} action pour l'aléa '{hazard}'."
+            )
+
 
 def attempt_selection(
     eligible_rows: list[dict[str, str]],
     preferred_company_categories: set[str],
+    selected_hazards: set[str],
     rng: random.Random,
     forced_rows: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]] | None:
@@ -255,6 +372,7 @@ def attempt_selection(
 
     score_seed = count_scores(forced_rows)
     term_seed = count_terms(forced_rows)
+    hazard_seed = count_target_hazards(forced_rows, selected_hazards)
     resource_seed = Counter(get_row_value(row, "Catégorie ressources", "Catégorie ressources") for row in forced_rows)
     used_seed = {row_id(row) for row in forced_rows}
 
@@ -264,10 +382,20 @@ def attempt_selection(
     def available_rows_by_term(used: set[int]) -> Counter[str]:
         return Counter(get_row_value(row, "Temps") for row in eligible_rows if row_id(row) not in used)
 
+    def available_rows_by_hazard(used: set[int]) -> Counter[str]:
+        counts: Counter[str] = Counter()
+        for row in eligible_rows:
+            if row_id(row) in used:
+                continue
+            for hazard in get_row_hazards(row) & selected_hazards:
+                counts[hazard] += 1
+        return counts
+
     def feasible(
         used: set[int],
         score_counts: Counter[int],
         term_counts: Counter[str],
+        hazard_counts: Counter[str],
         resource_counts: Counter[str],
     ) -> bool:
         for resource in TARGET_RESOURCE_CATEGORIES:
@@ -288,6 +416,12 @@ def attempt_selection(
         for term, target in TERM_TARGETS.items():
             missing = target - term_counts[term]
             if missing > 0 and term_availability[term] < missing:
+                return False
+
+        hazard_availability = available_rows_by_hazard(used)
+        for hazard in selected_hazards:
+            missing = PER_HAZARD_MIN_TARGET - hazard_counts[hazard]
+            if missing > 0 and hazard_availability[hazard] < missing:
                 return False
 
         return True
@@ -311,6 +445,7 @@ def attempt_selection(
         used = set(used_seed)
         score_counts = Counter(score_seed)
         term_counts = Counter(term_seed)
+        hazard_counts = Counter(hazard_seed)
         resource_counts = Counter(resource_seed)
 
         def fill_resource(resource_index: int) -> bool:
@@ -320,6 +455,9 @@ def attempt_selection(
                         return False
                 for term, target in TERM_TARGETS.items():
                     if term_counts[term] < target:
+                        return False
+                for hazard in selected_hazards:
+                    if hazard_counts[hazard] < PER_HAZARD_MIN_TARGET:
                         return False
                 return True
 
@@ -334,15 +472,28 @@ def attempt_selection(
 
                 score_availability = available_rows_by_score(used)
                 term_availability = available_rows_by_term(used)
+                hazard_availability = available_rows_by_hazard(used)
 
-                def candidate_priority(row: dict[str, str]) -> tuple[int, int, int, int, int, float]:
+                def candidate_priority(row: dict[str, str]) -> tuple[int, int, int, int, int, int, int, int, float]:
                     score = parse_score(row)
                     term = get_row_value(row, "Temps")
                     company = get_row_value(row, "Catégorie entreprise", "Catégorie entreprise")
+                    row_hazards = get_row_hazards(row) & selected_hazards
+                    hazard_need = 0 if any(hazard_counts[hazard] < PER_HAZARD_MIN_TARGET for hazard in row_hazards) else 1
+                    uncovered_hazard_count = -sum(
+                        1 for hazard in row_hazards if hazard_counts[hazard] < PER_HAZARD_MIN_TARGET
+                    )
+                    hazard_rarity = min(
+                        (hazard_availability[hazard] for hazard in row_hazards),
+                        default=sys.maxsize,
+                    )
                     score_need = 0 if score in SCORE_TARGETS and score_counts[score] < SCORE_TARGETS[score] else 1
                     term_need = 0 if term_counts[term] < TERM_TARGETS[term] else 1
                     company_need = 0 if company in preferred_company_categories else 1
                     return (
+                        hazard_need,
+                        uncovered_hazard_count,
+                        hazard_rarity,
                         score_need,
                         term_need,
                         company_need,
@@ -371,10 +522,15 @@ def attempt_selection(
                     resource_counts[row_resource] += 1
                     score_counts[row_score] += 1
                     term_counts[row_term] += 1
+                    row_hazards = get_row_hazards(row) & selected_hazards
+                    for hazard in row_hazards:
+                        hazard_counts[hazard] += 1
 
-                    if feasible(used, score_counts, term_counts, resource_counts) and choose_slot(remaining_slots - 1):
+                    if feasible(used, score_counts, term_counts, hazard_counts, resource_counts) and choose_slot(remaining_slots - 1):
                         return True
 
+                    for hazard in row_hazards:
+                        hazard_counts[hazard] -= 1
                     term_counts[row_term] -= 1
                     score_counts[row_score] -= 1
                     resource_counts[row_resource] -= 1
@@ -385,7 +541,7 @@ def attempt_selection(
 
             return choose_slot(slots_needed)
 
-        if feasible(used, score_counts, term_counts, resource_counts) and fill_resource(0):
+        if feasible(used, score_counts, term_counts, hazard_counts, resource_counts) and fill_resource(0):
             return selected
 
     return None
@@ -394,6 +550,7 @@ def attempt_selection(
 def best_effort_selection(
     eligible_rows: list[dict[str, str]],
     preferred_company_categories: set[str],
+    selected_hazards: set[str],
     rng: random.Random,
     forced_rows: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]]:
@@ -428,17 +585,31 @@ def best_effort_selection(
 
             score_counts = count_scores(selected)
             term_counts = count_terms(selected)
+            hazard_counts = count_target_hazards(selected, selected_hazards)
             score_pool = Counter(parse_score(row) for row in remaining)
             term_pool = Counter(get_row_value(row, "Temps") for row in remaining)
+            hazard_pool: Counter[str] = Counter()
+            for row in remaining:
+                for hazard in get_row_hazards(row) & selected_hazards:
+                    hazard_pool[hazard] += 1
 
-            def priority(row: dict[str, str]) -> tuple[int, int, int, int, int, float]:
+            def priority(row: dict[str, str]) -> tuple[int, int, int, int, int, int, int, int, float]:
                 score = parse_score(row)
                 term = get_row_value(row, "Temps")
                 company = get_row_value(row, "Catégorie entreprise", "Catégorie entreprise")
+                row_hazards = get_row_hazards(row) & selected_hazards
+                hazard_need = 0 if any(hazard_counts[hazard] < PER_HAZARD_MIN_TARGET for hazard in row_hazards) else 1
+                uncovered_hazard_count = -sum(
+                    1 for hazard in row_hazards if hazard_counts[hazard] < PER_HAZARD_MIN_TARGET
+                )
+                hazard_rarity = min((hazard_pool[hazard] for hazard in row_hazards), default=sys.maxsize)
                 score_need = 0 if score in SCORE_TARGETS and score_counts[score] < SCORE_TARGETS[score] else 1
                 term_need = 0 if term_counts[term] < TERM_TARGETS[term] else 1
                 company_need = 0 if company in preferred_company_categories else 1
                 return (
+                    hazard_need,
+                    uncovered_hazard_count,
+                    hazard_rarity,
                     score_need,
                     term_need,
                     company_need,
@@ -537,7 +708,11 @@ def write_output(rows: list[dict[str, str]], output_path: Path) -> None:
         writer.writerows(rows)
 
 
-def print_summary(rows: list[dict[str, str]], preferred_company_categories: set[str]) -> None:
+def print_summary(
+    rows: list[dict[str, str]],
+    preferred_company_categories: set[str],
+    selected_hazards: set[str],
+) -> None:
     print("\nSélection finale :")
     by_resource = defaultdict(list)
     for row in rows:
@@ -557,10 +732,15 @@ def print_summary(rows: list[dict[str, str]], preferred_company_categories: set[
         print("  - scores: " + ", ".join(f"{score}={score_counts[score]}" for score in range(11)))
 
     total_scores = count_scores(rows)
+    total_hazards = count_target_hazards(rows, selected_hazards)
     fallback_count = len(rows) - preferred_count
     missing_scores = [score for score, target in SCORE_TARGETS.items() if total_scores[score] < target]
     print("\nScores globaux :")
     print(", ".join(f"{score}={total_scores[score]}" for score in range(11)))
+    print("\nCouverture des aléas retenus :")
+    for hazard in TARGET_HAZARDS:
+        if hazard in selected_hazards:
+            print(f"- {hazard}: {total_hazards[hazard]}")
     if missing_scores:
         print(
             "Scores non couverts à hauteur de 2 dans le résultat final : "
@@ -584,7 +764,8 @@ def main() -> int:
     company_categories = get_unique_company_categories(rows)
     selected_company_categories = prompt_company_categories(company_categories)
     preferred_company_categories = set(selected_company_categories)
-    forced_rows = prompt_forced_actions(rows)
+    selected_hazards = set(prompt_target_hazards())
+    forced_rows = prompt_forced_actions(rows, selected_hazards)
 
     if len(forced_rows) > PER_RESOURCE_TARGET * len(TARGET_RESOURCE_CATEGORIES):
         print(
@@ -615,6 +796,7 @@ def main() -> int:
         row
         for row in rows
         if get_row_value(row, "Catégorie ressources", "Catégorie ressources") in TARGET_RESOURCE_CATEGORIES
+        and bool(get_row_hazards(row) & selected_hazards)
     ]
 
     if not eligible_rows:
@@ -625,6 +807,7 @@ def main() -> int:
         row
         for row in rows
         if get_row_value(row, "Catégorie ressources", "Catégorie ressources") in TARGET_RESOURCE_CATEGORIES
+        and bool(get_row_hazards(row) & selected_hazards)
     ]
     target_score_counts = count_scores(target_rows)
     impossible_scores = [score for score, target in SCORE_TARGETS.items() if target_score_counts[score] < target]
@@ -639,8 +822,8 @@ def main() -> int:
             + "."
         )
         print(
-            "Le script va quand même produire un CSV best-effort en respectant d'abord les catégories de ressource, "
-            "les catégories d'entreprise choisies et les temporalités."
+            "Le script va quand même produire un CSV best-effort en respectant d'abord les aléas retenus, "
+            "les catégories de ressource, les catégories d'entreprise choisies et les temporalités."
         )
 
     print(f"\nRecherche d'une s?lection valide pour {len(forced_rows)} action(s) impos?e(s)...")
@@ -650,13 +833,14 @@ def main() -> int:
         selected = attempt_selection(
             eligible_rows,
             preferred_company_categories,
+            selected_hazards,
             rng,
             forced_rows,
         )
         if selected is None:
             continue
         try:
-            validate_selection(selected)
+            validate_selection(selected, selected_hazards)
             break
         except ValueError:
             selected = None
@@ -670,6 +854,7 @@ def main() -> int:
         selected = best_effort_selection(
             eligible_rows,
             preferred_company_categories,
+            selected_hazards,
             random.SystemRandom(),
             forced_rows,
         )
@@ -677,7 +862,7 @@ def main() -> int:
     write_output(selected, OUTPUT_PATH)
     print(f"\nCSV mis ? jour : {OUTPUT_PATH}")
     try:
-        print_summary(selected, preferred_company_categories)
+        print_summary(selected, preferred_company_categories, selected_hazards)
     except Exception:
         pass
     return 0
