@@ -688,6 +688,8 @@ function applyCategoryFilter() {
   });
 }
 
+categoryFilterSelect?.addEventListener("change", applyCategoryFilter);
+
 function renderActionsGrid() {
   if (!grid) {
     return;
@@ -1267,6 +1269,168 @@ if (document.readyState === "loading") {
 } else {
   initRoleGate();
 }
+
+function exportPDFCustom() {
+  const selectedActions = getSelectedActionsFromState(roomState || DEFAULT_ROOM_STATE);
+  const grouped = {};
+  const assets = {
+    logo: new URL("images/Akteologo.svg", window.location.href).href,
+    riskCard: new URL("images/calcul risque.png", window.location.href).href,
+    adaptationPathCard: new URL("images/chemin adaptation.png", window.location.href).href,
+    bestPracticesCard: new URL("images/bonnes pratiques.png", window.location.href).href,
+  };
+
+  selectedActions.forEach((action) => {
+    if (!grouped[action.cat]) {
+      grouped[action.cat] = [];
+    }
+    grouped[action.cat].push(action.title);
+  });
+
+  let html = `
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        :root{
+          --background_color:#fbfcf8;
+          --surface_color:#ffffff;
+          --surface_soft_color:#f5f7f3;
+          --text_color:#0f1511;
+          --muted_color:#5c6761;
+          --border_color:rgba(15, 21, 17, 0.12);
+          --border_strong_color:rgba(15, 21, 17, 0.22);
+          --accent_color:#99ff99;
+          --accent_soft_color:rgba(153, 255, 153, 0.18);
+          --accent_ink_color:#103010;
+          --font_family:"Lato", system-ui, sans-serif;
+          --radius_md:12px;
+          --shadow_soft:0 16px 40px rgba(0, 0, 0, 0.06);
+        }
+        *{box-sizing:border-box;}
+        body{
+          margin:0;
+          font-family:var(--font_family);
+          padding:24px;
+          color:var(--text_color);
+          background:
+            radial-gradient(circle at top left, var(--accent_soft_color), transparent 35%),
+            radial-gradient(circle at top right, var(--accent_soft_color), transparent 30%),
+            var(--background_color);
+        }
+        .banner{
+          display:flex;
+          align-items:center;
+          gap:24px;
+          padding:16px 0 24px;
+          border-bottom:1px solid var(--border_strong_color);
+          margin-bottom:28px;
+        }
+        .banner img{width:180px;height:auto;object-fit:contain;}
+        .banner h1{margin:0;font-size:32px;color:var(--text_color);}
+        .cards{display:block;margin:28px 0 36px;}
+        .card{
+          border:1px solid var(--border_color);
+          border-radius:var(--radius_md);
+          padding:18px;
+          background:var(--surface_color);
+          box-shadow:var(--shadow_soft);
+          break-inside:avoid;
+          min-height:calc(100vh - 120px);
+          display:flex;
+          flex-direction:column;
+          justify-content:center;
+          page-break-after:always;
+          margin-bottom:24px;
+        }
+        .card img{
+          display:block;
+          width:100%;
+          height:calc(100vh - 220px);
+          min-height:900px;
+          object-fit:contain;
+        }
+        .card-title{margin:18px 0 0;font-size:24px;font-weight:700;color:var(--text_color);text-align:center;}
+        h2{color:var(--text_color);margin:0 0 16px;}
+        .cat{
+          margin-top:18px;
+          padding:14px 16px;
+          background:var(--surface_soft_color);
+          border:1px solid var(--border_color);
+          border-radius:var(--radius_md);
+          break-inside:avoid;
+        }
+        .cat strong{
+          display:block;
+          margin-bottom:8px;
+          color:var(--accent_ink_color);
+        }
+        .cat ul{margin:0;padding-left:20px;}
+        .cat li{margin-bottom:6px;color:var(--muted_color);}
+        .section-rule{
+          width:64px;
+          height:4px;
+          border-radius:999px;
+          background:var(--accent_color);
+          margin:0 0 18px;
+        }
+        @media print{
+          body{padding:16px;}
+          .card{
+            min-height:calc(100vh - 64px);
+            margin-bottom:0;
+          }
+          .card img{
+            height:calc(100vh - 180px);
+            min-height:0;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="banner">
+        <img src="${assets.logo}" alt="Logo Akteo">
+        <h1>Atelier ClimAdapt</h1>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <img src="${assets.riskCard}" alt="Fiche calcul risque">
+          <div class="card-title">Calcul risque</div>
+        </div>
+        <div class="card">
+          <img src="${assets.adaptationPathCard}" alt="Fiche chemin adaptation">
+          <div class="card-title">Chemin adaptation</div>
+        </div>
+        <div class="card">
+          <img src="${assets.bestPracticesCard}" alt="Fiche bonnes pratiques">
+          <div class="card-title">Bonnes pratiques</div>
+        </div>
+      </div>
+
+      <div class="section-rule"></div>
+      <h2>Actions selectionnées</h2>
+  `;
+
+  Object.keys(grouped).forEach((category) => {
+    html += `<div class="cat"><strong>${category}</strong><ul>`;
+    grouped[category].forEach((title) => {
+      html += `<li>${title}</li>`;
+    });
+    html += `</ul></div>`;
+  });
+
+  html += `</body></html>`;
+
+  const win = window.open("", "", "width=900,height=700");
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+    win.print();
+  }
+}
+
+exportPDF = exportPDFCustom;
 
 window.setMode = setMode;
 window.startWorkshop = startWorkshop;
