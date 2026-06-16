@@ -16,6 +16,8 @@ let roomRef = null;
 let sessionRole = null;
 let appBootstrapped = false;
 let masterClaimAttempted = false;
+let actionsCsvSnapshot = "";
+let actionsCsvPollHandle = null;
 
 const actionsCsvPath =
   document.body?.dataset.actionsCsv || "actions_selection.csv";
@@ -62,6 +64,25 @@ const DEFAULT_ROOM_STATE = {
 
 const grid = document.getElementById("grid");
 const categoryFilterSelect = document.getElementById("categoryFilter");
+const ACTIONS_CSV_POLL_INTERVAL_MS = 15000;
+const PERFECT_SELECTION_SIZE = 15;
+const PERFECT_TAG_BITS = {
+  1: 1 << 0,
+  2: 1 << 1,
+  3: 1 << 2,
+  4: 1 << 3,
+  6: 1 << 4,
+  7: 1 << 5,
+  8: 1 << 6,
+  10: 1 << 7,
+};
+const PERFECT_REQUIRED_TAG_MASK = Object.values(PERFECT_TAG_BITS).reduce(
+  (acc, bit) => acc | bit,
+  0
+);
+const PERFECT_ALL_CATEGORY_MASK = (1 << RESOURCE_CATEGORY_ORDER.length) - 1;
+let perfectScoreAnalysis = null;
+let perfectScoreAnalysisToken = 0;
 
 function normalizeTextKey(value) {
   return (value || "")
@@ -255,6 +276,7 @@ async function bootstrapApp(role) {
   try {
     initFirebase();
     await loadActionsFromCSV();
+    startActionsCsvPolling();
     showAppShell();
     hideRoleGate();
     document.body.classList.remove("role-gate-open");
@@ -361,6 +383,22 @@ function getOrderedCategories() {
   });
 }
 
+function buildDisplayedActionNumberMap() {
+  const numberMap = new Map();
+  let displayNumber = 1;
+
+  getOrderedCategories().forEach((category) => {
+    actions
+      .filter((action) => action.cat === category && isActionVisibleForRole(action))
+      .forEach((action) => {
+        numberMap.set(String(action.id), displayNumber);
+        displayNumber++;
+      });
+  });
+
+  return numberMap;
+}
+
 function computeMetricsFromSelection(selectedActions) {
   const tags = selectedActions.map((action) => Number(action.tag));
   const categories = [...new Set(selectedActions.map((action) => action.cat))];
@@ -451,6 +489,560 @@ function computeMetricsFromSelection(selectedActions) {
     criteria,
     categories,
   };
+}
+
+function formatBigInt(value) {
+  return value
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+function formatPercentage(count, total) {
+  if (!total) {
+    return "0 %";
+  }
+
+  const ratio = (Number(count) / Number(total)) * 100;
+  if (!Number.isFinite(ratio) || ratio === 0) {
+    return "< 0,01 %";
+  }
+  if (ratio >= 10) {
+    return `${ratio.toFixed(1).replace(".", ",")} %`;
+  }
+  if (ratio >= 1) {
+    return `${ratio.toFixed(2).replace(".", ",")} %`;
+  }
+  return `${ratio.toFixed(3).replace(".", ",")} %`;
+}
+
+function getAxesForAction(action) {
+  const tag = Number(action.tag);
+  const axisMap = {
+    1: [2],
+    2: [2],
+    3: [3],
+    4: [1],
+    5: [1],
+    6: [3],
+    7: [4],
+    8: [3],
+    9: [4],
+    10: [4],
+  };
+
+  return axisMap[tag] || [];
+}
+
+function getCategoryBit(category) {
+  const index = RESOURCE_CATEGORY_ORDER.indexOf(category);
+  return index === -1 ? 0 : 1 << index;
+}
+
+function getOptimizationSignature(action) {
+  const tag = Number(action.tag);
+  const category = action.cat || "";
+  return {
+    tagMask: PERFECT_TAG_BITS[tag] || 0,
+    tagFiveCount: tag === 5 ? 1 : 0,
+    blocksPerfectScore: tag === 9,
+    categoryBit: getCategoryBit(category),
+    natureCount: category.includes("Nature") ? 1 : 0,
+    techCount: category.includes("Techniques") ? 1 : 0,
+  };
+}
+
+function buildOptimizationGroups() {
+  const groupsBySignature = new Map();
+
+  actions.forEach((action) => {
+    const signature = getOptimizationSignature(action);
+    const key = [
+      signature.tagMask,
+      signature.tagFiveCount,
+      signature.blocksPerfectScore ? 1 : 0,
+      signature.categoryBit,
+      signature.natureCount,
+      signature.techCount,
+    ].join("|");
+
+    if (!groupsBySignature.has(key)) {
+      groupsBySignature.set(key, {
+        ...signature,
+        actions: [],
+      });
+    }
+
+    groupsBySignature.get(key).actions.push(action);
+  });
+
+  return [...groupsBySignature.values()]
+    .map((group) => ({
+      ...group,
+      count: group.actions.length,
+      actions: [...group.actions].sort((left, right) => left.id - right.id),
+    }))
+    .sort((left, right) => {
+      const leftWeight =
+        Number(left.blocksPerfectScore) * 100 +
+        Number(left.tagMask !== 0) * 10 +
+        left.categoryBit +
+        left.tagFiveCount;
+      const rightWeight =
+        Number(right.blocksPerfectScore) * 100 +
+        Number(right.tagMask !== 0) * 10 +
+        right.categoryBit +
+        right.tagFiveCount;
+      return leftWeight - rightWeight;
+    });
+}
+
+function buildCombinationCounter() {
+  const cache = new Map();
+
+  return function combination(n, k) {
+    if (k < 0 || k > n) {
+      return 0n;
+    }
+
+    const normalizedK = Math.min(k, n - k);
+    const key = `${n}|${normalizedK}`;
+
+    if (cache.has(key)) {
+      return cache.get(key);
+    }
+
+    let result = 1n;
+    for (let i = 1; i <= normalizedK; i++) {
+      result = (result * BigInt(n - normalizedK + i)) / BigInt(i);
+    }
+
+    cache.set(key, result);
+    return result;
+  };
+}
+
+function isPerfectSelectionState(mask, tagFiveCount, categoryMask, natureCount, techCount) {
+  return (
+    mask === PERFECT_REQUIRED_TAG_MASK &&
+    tagFiveCount >= 2 &&
+    categoryMask === PERFECT_ALL_CATEGORY_MASK &&
+    natureCount > 0 &&
+    natureCount >= techCount
+  );
+}
+
+function analyzePerfectSelections() {
+  if (actions.length < PERFECT_SELECTION_SIZE) {
+    return {
+      count: 0n,
+      totalCombinations: 0n,
+      sampleSelections: [],
+    };
+  }
+
+  const groups = buildOptimizationGroups();
+  const combine = buildCombinationCounter();
+  const suffixCounts = new Array(groups.length + 1).fill(0);
+  const suffixMasks = new Array(groups.length + 1).fill(0);
+  const suffixCategoryMasks = new Array(groups.length + 1).fill(0);
+  const suffixTagFiveCounts = new Array(groups.length + 1).fill(0);
+
+  for (let index = groups.length - 1; index >= 0; index--) {
+    const group = groups[index];
+    suffixCounts[index] = suffixCounts[index + 1] + group.count;
+    suffixMasks[index] = suffixMasks[index + 1] | group.tagMask;
+    suffixCategoryMasks[index] =
+      suffixCategoryMasks[index + 1] | group.categoryBit;
+    suffixTagFiveCounts[index] =
+      suffixTagFiveCounts[index + 1] + group.count * group.tagFiveCount;
+  }
+
+  const memo = new Map();
+
+  function countSolutions(
+    groupIndex,
+    remaining,
+    mask,
+    tagFiveCount,
+    categoryMask,
+    natureCount,
+    techCount
+  ) {
+    if (remaining === 0) {
+      return isPerfectSelectionState(
+        mask,
+        tagFiveCount,
+        categoryMask,
+        natureCount,
+        techCount
+      )
+        ? 1n
+        : 0n;
+    }
+
+    if (groupIndex >= groups.length || remaining > suffixCounts[groupIndex]) {
+      return 0n;
+    }
+
+    if (((mask | suffixMasks[groupIndex]) & PERFECT_REQUIRED_TAG_MASK) !== PERFECT_REQUIRED_TAG_MASK) {
+      return 0n;
+    }
+
+    if (((categoryMask | suffixCategoryMasks[groupIndex]) & PERFECT_ALL_CATEGORY_MASK) !== PERFECT_ALL_CATEGORY_MASK) {
+      return 0n;
+    }
+
+    if (tagFiveCount + suffixTagFiveCounts[groupIndex] < 2) {
+      return 0n;
+    }
+
+    const key = [
+      groupIndex,
+      remaining,
+      mask,
+      tagFiveCount,
+      categoryMask,
+      natureCount,
+      techCount,
+    ].join("|");
+
+    if (memo.has(key)) {
+      return memo.get(key);
+    }
+
+    const group = groups[groupIndex];
+    let total = 0n;
+    const maxTake = Math.min(remaining, group.count);
+
+    for (let take = 0; take <= maxTake; take++) {
+      if (group.blocksPerfectScore && take > 0) {
+        break;
+      }
+
+      const nextMask = take > 0 ? mask | group.tagMask : mask;
+      const nextTagFiveCount = Math.min(2, tagFiveCount + take * group.tagFiveCount);
+      const nextCategoryMask = take > 0 ? categoryMask | group.categoryBit : categoryMask;
+      const nextNatureCount = natureCount + take * group.natureCount;
+      const nextTechCount = techCount + take * group.techCount;
+      const remainder = countSolutions(
+        groupIndex + 1,
+        remaining - take,
+        nextMask,
+        nextTagFiveCount,
+        nextCategoryMask,
+        nextNatureCount,
+        nextTechCount
+      );
+
+      if (remainder > 0n) {
+        total += combine(group.count, take) * remainder;
+      }
+    }
+
+    memo.set(key, total);
+    return total;
+  }
+
+  function buildSample(
+    groupIndex,
+    remaining,
+    mask,
+    tagFiveCount,
+    categoryMask,
+    natureCount,
+    techCount,
+    selections
+  ) {
+    if (remaining === 0) {
+      return isPerfectSelectionState(
+        mask,
+        tagFiveCount,
+        categoryMask,
+        natureCount,
+        techCount
+      )
+        ? selections
+        : null;
+    }
+
+    const group = groups[groupIndex];
+    const maxTake = Math.min(remaining, group.count);
+
+    for (let take = 0; take <= maxTake; take++) {
+      if (group.blocksPerfectScore && take > 0) {
+        break;
+      }
+
+      const nextMask = take > 0 ? mask | group.tagMask : mask;
+      const nextTagFiveCount = Math.min(2, tagFiveCount + take * group.tagFiveCount);
+      const nextCategoryMask = take > 0 ? categoryMask | group.categoryBit : categoryMask;
+      const nextNatureCount = natureCount + take * group.natureCount;
+      const nextTechCount = techCount + take * group.techCount;
+      const remainder = countSolutions(
+        groupIndex + 1,
+        remaining - take,
+        nextMask,
+        nextTagFiveCount,
+        nextCategoryMask,
+        nextNatureCount,
+        nextTechCount
+      );
+
+      if (remainder > 0n) {
+        const nextSelections =
+          take > 0
+            ? [...selections, ...group.actions.slice(0, take)]
+            : selections;
+        const result = buildSample(
+          groupIndex + 1,
+          remaining - take,
+          nextMask,
+          nextTagFiveCount,
+          nextCategoryMask,
+          nextNatureCount,
+          nextTechCount,
+          nextSelections
+        );
+
+        if (result) {
+          return result;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function buildTakeOrder(maxTake, mode) {
+    const values = Array.from({ length: maxTake + 1 }, (_, index) => index);
+    if (mode === "desc") {
+      return values.reverse();
+    }
+    if (mode === "center") {
+      const center = Math.floor(maxTake / 2);
+      return values.sort((left, right) => {
+        const leftDistance = Math.abs(left - center);
+        const rightDistance = Math.abs(right - center);
+        if (leftDistance !== rightDistance) {
+          return leftDistance - rightDistance;
+        }
+        return right - left;
+      });
+    }
+    return values;
+  }
+
+  function buildVariantSample(
+    groupIndex,
+    remaining,
+    mask,
+    tagFiveCount,
+    categoryMask,
+    natureCount,
+    techCount,
+    selections,
+    mode
+  ) {
+    if (remaining === 0) {
+      return isPerfectSelectionState(
+        mask,
+        tagFiveCount,
+        categoryMask,
+        natureCount,
+        techCount
+      )
+        ? selections
+        : null;
+    }
+
+    const group = groups[groupIndex];
+    const maxTake = Math.min(remaining, group.count);
+    const takeOrder = buildTakeOrder(maxTake, mode);
+
+    for (const take of takeOrder) {
+      if (group.blocksPerfectScore && take > 0) {
+        continue;
+      }
+
+      const nextMask = take > 0 ? mask | group.tagMask : mask;
+      const nextTagFiveCount = Math.min(2, tagFiveCount + take * group.tagFiveCount);
+      const nextCategoryMask = take > 0 ? categoryMask | group.categoryBit : categoryMask;
+      const nextNatureCount = natureCount + take * group.natureCount;
+      const nextTechCount = techCount + take * group.techCount;
+      const remainder = countSolutions(
+        groupIndex + 1,
+        remaining - take,
+        nextMask,
+        nextTagFiveCount,
+        nextCategoryMask,
+        nextNatureCount,
+        nextTechCount
+      );
+
+      if (remainder === 0n) {
+        continue;
+      }
+
+      let chosenActions = [];
+      if (take > 0) {
+        if (mode === "desc") {
+          chosenActions = group.actions.slice(group.actions.length - take);
+        } else if (mode === "center") {
+          const start = Math.max(0, Math.floor((group.actions.length - take) / 2));
+          chosenActions = group.actions.slice(start, start + take);
+        } else {
+          chosenActions = group.actions.slice(0, take);
+        }
+      }
+
+      const result = buildVariantSample(
+        groupIndex + 1,
+        remaining - take,
+        nextMask,
+        nextTagFiveCount,
+        nextCategoryMask,
+        nextNatureCount,
+        nextTechCount,
+        [...selections, ...chosenActions],
+        mode
+      );
+
+      if (result) {
+        return result;
+      }
+    }
+
+    return null;
+  }
+
+  const count = countSolutions(0, PERFECT_SELECTION_SIZE, 0, 0, 0, 0, 0);
+  const totalCombinations = combine(actions.length, PERFECT_SELECTION_SIZE);
+  const sampleSelections = [];
+  const seen = new Set();
+
+  if (count > 0n) {
+    const primarySample =
+      buildSample(0, PERFECT_SELECTION_SIZE, 0, 0, 0, 0, 0, []) || [];
+    const variants = [
+      primarySample,
+      buildVariantSample(0, PERFECT_SELECTION_SIZE, 0, 0, 0, 0, 0, [], "desc") || [],
+      buildVariantSample(0, PERFECT_SELECTION_SIZE, 0, 0, 0, 0, 0, [], "center") || [],
+    ];
+
+    variants.forEach((selection) => {
+      if (!selection.length) {
+        return;
+      }
+      const normalized = [...selection].sort((left, right) => left.id - right.id);
+      const key = normalized.map((action) => action.id).join("-");
+      if (!seen.has(key)) {
+        seen.add(key);
+        sampleSelections.push(normalized);
+      }
+    });
+  }
+
+  return {
+    count,
+    totalCombinations,
+    sampleSelections,
+  };
+}
+
+function renderMasterPerfectPanel() {
+  const box = document.getElementById("masterPerfectBox");
+  const countEl = document.getElementById("masterPerfectCount");
+  const statusEl = document.getElementById("masterPerfectStatus");
+  const listEl = document.getElementById("masterPerfectList");
+  const visible = sessionRole === "master";
+
+  if (!box || !countEl || !statusEl || !listEl) {
+    return;
+  }
+
+  box.style.display = visible ? "block" : "none";
+  box.classList.toggle("hidden", !visible);
+
+  if (!visible) {
+    return;
+  }
+
+  if (!perfectScoreAnalysis) {
+    countEl.textContent = "...";
+    statusEl.textContent = "Calcul des combinaisons 10/10 en cours.";
+    listEl.innerHTML = "";
+    return;
+  }
+
+  countEl.textContent = formatBigInt(perfectScoreAnalysis.count);
+
+  if (perfectScoreAnalysis.count === 0n) {
+    statusEl.textContent = "Aucune combinaison de 15 actions ne permet d'atteindre 10/10.";
+    listEl.innerHTML = "";
+    return;
+  }
+
+  const displayNumberMap = buildDisplayedActionNumberMap();
+  const percentage = formatPercentage(
+    perfectScoreAnalysis.count,
+    perfectScoreAnalysis.totalCombinations
+  );
+  countEl.textContent = percentage;
+  statusEl.textContent = "Trois exemples de lots menant a 10/10.";
+  listEl.innerHTML = perfectScoreAnalysis.sampleSelections
+    .slice(0, 3)
+    .map((selection, index) => {
+      const sortedSelection = [...selection].sort((left, right) => {
+        const leftNumber = displayNumberMap.get(String(left.id)) || left.id;
+        const rightNumber = displayNumberMap.get(String(right.id)) || right.id;
+        return leftNumber - rightNumber;
+      });
+      const items = sortedSelection
+        .map((action) => {
+          const displayNumber = displayNumberMap.get(String(action.id)) || action.id;
+          const axes = getAxesForAction(action);
+          const axesLabel = axes.length
+            ? ` (axe${axes.length > 1 ? "s" : ""} ${axes.join(", ")}, tag ${action.tag})`
+            : ` (tag ${action.tag})`;
+          return `<li><strong>${displayNumber}.</strong> ${action.title}${axesLabel}</li>`;
+        })
+        .join("");
+      return `<li><strong>Lot ${index + 1}</strong><ol>${items}</ol></li>`;
+    })
+    .join("");
+}
+
+function schedulePerfectScoreAnalysis() {
+  perfectScoreAnalysis = null;
+  renderMasterPerfectPanel();
+
+  if (sessionRole !== "master" || actions.length < PERFECT_SELECTION_SIZE) {
+    perfectScoreAnalysis = {
+      count: 0n,
+      sampleActions: [],
+    };
+    renderMasterPerfectPanel();
+    return;
+  }
+
+  const token = ++perfectScoreAnalysisToken;
+  window.setTimeout(() => {
+    if (token !== perfectScoreAnalysisToken) {
+      return;
+    }
+
+    try {
+      perfectScoreAnalysis = analyzePerfectSelections();
+    } catch (error) {
+      console.error(error);
+      perfectScoreAnalysis = {
+        count: 0n,
+        sampleActions: [],
+      };
+    }
+
+    renderMasterPerfectPanel();
+  }, 0);
 }
 
 function updateFinalAnalysis(criteria) {
@@ -662,6 +1254,8 @@ function updatePermissionUI() {
       ? "Maître de partie"
       : "Joueur";
   }
+
+  renderMasterPerfectPanel();
 }
 
 function renderCategoryFilter() {
@@ -888,10 +1482,7 @@ function maybeRender() {
   renderRoomState();
 }
 
-async function loadActionsFromCSV() {
-  const response = await fetch(new URL(actionsCsvPath, window.location.href));
-  const csvText = await response.text();
-
+function buildActionsFromCsvText(csvText) {
   const rows = parseCSV(csvText);
   const headers = rows.shift() || [];
   const headerIndex = new Map(
@@ -928,10 +1519,51 @@ async function loadActionsFromCSV() {
       tag: Number(getCell(row, ["Tag", "Score"])),
     };
   });
+}
 
+function refreshActionsFromCsvText(csvText) {
+  buildActionsFromCsvText(csvText);
   renderActionsGrid();
+  schedulePerfectScoreAnalysis();
+  if (roomReady) {
+    renderRoomState();
+  }
+}
+
+async function loadActionsFromCSV() {
+  const response = await fetch(new URL(actionsCsvPath, window.location.href), {
+    cache: "no-store",
+  });
+  const csvText = await response.text();
+  actionsCsvSnapshot = csvText;
+
+  refreshActionsFromCsvText(csvText);
   actionsReady = true;
   maybeRender();
+}
+
+function startActionsCsvPolling() {
+  if (actionsCsvPollHandle) {
+    return;
+  }
+
+  actionsCsvPollHandle = window.setInterval(async () => {
+    try {
+      const url = new URL(actionsCsvPath, window.location.href);
+      url.searchParams.set("_ts", String(Date.now()));
+      const response = await fetch(url, { cache: "no-store" });
+      const csvText = await response.text();
+
+      if (!csvText || csvText === actionsCsvSnapshot) {
+        return;
+      }
+
+      actionsCsvSnapshot = csvText;
+      refreshActionsFromCsvText(csvText);
+    } catch (error) {
+      console.error(error);
+    }
+  }, ACTIONS_CSV_POLL_INTERVAL_MS);
 }
 
 function initFirebase() {
@@ -1187,6 +1819,196 @@ function exportPDF() {
   }
 }
 
+function exportPDFEnhanced() {
+  const selectedActions = getSelectedActionsFromState(roomState || DEFAULT_ROOM_STATE);
+  const grouped = {};
+  const assets = {
+    logo: new URL("images/Akteologo.svg", window.location.href).href,
+    riskCard: new URL("images/calcul risque.png", window.location.href).href,
+    adaptationPathCard: new URL("images/chemin adaptation.png", window.location.href).href,
+    bestPracticesCard: new URL("images/bonnes pratiques.png", window.location.href).href,
+  };
+
+  selectedActions.forEach((action) => {
+    if (!grouped[action.cat]) {
+      grouped[action.cat] = [];
+    }
+    grouped[action.cat].push(action.title);
+  });
+
+  let html = `
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        :root{
+          --background_color:#fbfcf8;
+          --surface_color:#ffffff;
+          --surface_soft_color:#f5f7f3;
+          --text_color:#0f1511;
+          --muted_color:#5c6761;
+          --border_color:rgba(15, 21, 17, 0.12);
+          --accent_color:#99ff99;
+          --accent_soft_color:rgba(153, 255, 153, 0.18);
+          --accent_ink_color:#103010;
+          --font_family:"Lato", system-ui, sans-serif;
+          --radius_md:12px;
+          --shadow_soft:0 16px 40px rgba(0, 0, 0, 0.06);
+        }
+        *{box-sizing:border-box;}
+        body{
+          margin:0;
+          font-family:var(--font_family);
+          padding:24px;
+          color:var(--text_color);
+          background:
+            radial-gradient(circle at top left, var(--accent_soft_color), transparent 35%),
+            radial-gradient(circle at top right, var(--accent_soft_color), transparent 30%),
+            var(--background_color);
+        }
+        .cover{
+          min-height:calc(100vh - 48px);
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          page-break-after:always;
+          margin-bottom:24px;
+        }
+        .cover-panel{
+          width:min(100%, 1180px);
+          min-height:calc(100vh - 140px);
+          padding:56px;
+          border-radius:28px;
+          background:var(--accent_color);
+          color:var(--accent_ink_color);
+          display:flex;
+          flex-direction:column;
+          align-items:center;
+          justify-content:center;
+          gap:36px;
+          text-align:center;
+          box-shadow:var(--shadow_soft);
+        }
+        .cover-panel img{
+          width:min(76vw, 620px);
+          max-height:38vh;
+          object-fit:contain;
+        }
+        .cover-panel h1{
+          margin:0;
+          font-size:clamp(3.2rem, 5vw, 5.6rem);
+          color:var(--accent_ink_color);
+        }
+        .cards{display:block;margin:28px 0 36px;}
+        .card{
+          border:1px solid var(--border_color);
+          border-radius:var(--radius_md);
+          padding:18px;
+          background:var(--surface_color);
+          box-shadow:var(--shadow_soft);
+          break-inside:avoid;
+          min-height:calc(100vh - 120px);
+          display:flex;
+          flex-direction:column;
+          justify-content:center;
+          page-break-after:always;
+          margin-bottom:24px;
+        }
+        .card img{
+          display:block;
+          width:100%;
+          height:calc(100vh - 220px);
+          min-height:900px;
+          object-fit:contain;
+        }
+        h2{color:var(--text_color);margin:0 0 16px;}
+        .section-rule{
+          width:64px;
+          height:4px;
+          border-radius:999px;
+          background:var(--accent_color);
+          margin:0 0 18px;
+        }
+        .cat{
+          margin-top:18px;
+          padding:14px 16px;
+          background:var(--surface_soft_color);
+          border:1px solid var(--border_color);
+          border-radius:var(--radius_md);
+          break-inside:avoid;
+        }
+        .cat strong{
+          display:block;
+          margin-bottom:8px;
+          color:var(--accent_ink_color);
+        }
+        .cat ul{margin:0;padding-left:20px;}
+        .cat li{margin-bottom:6px;color:var(--muted_color);}
+        @media print{
+          body{padding:16px;}
+          .cover{
+            min-height:calc(100vh - 32px);
+            margin-bottom:0;
+          }
+          .cover-panel{
+            width:100%;
+            min-height:calc(100vh - 64px);
+            padding:40px;
+            border-radius:24px;
+          }
+          .card{
+            min-height:calc(100vh - 64px);
+            margin-bottom:0;
+          }
+          .card img{
+            height:calc(100vh - 180px);
+            min-height:0;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="cover">
+        <div class="cover-panel">
+          <img src="${assets.logo}" alt="Logo Akteo">
+          <h1>Atelier ClimAdapt</h1>
+        </div>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <img src="${assets.riskCard}" alt="Fiche calcul risque">
+        </div>
+        <div class="card">
+          <img src="${assets.adaptationPathCard}" alt="Fiche chemin adaptation">
+        </div>
+        <div class="card">
+          <img src="${assets.bestPracticesCard}" alt="Fiche bonnes pratiques">
+        </div>
+      </div>
+
+      <div class="section-rule"></div>
+      <h2>Actions sélectionnées</h2>
+  `;
+
+  Object.keys(grouped).forEach((category) => {
+    html += `<div class="cat"><strong>${category}</strong><ul>`;
+    grouped[category].forEach((title) => {
+      html += `<li>${title}</li>`;
+    });
+    html += `</ul></div>`;
+  });
+
+  html += `</body></html>`;
+
+  const win = window.open("", "", "width=900,height=700");
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+    win.print();
+  }
+}
+
 function toggleCardFlip(card, active) {
   if (!card) {
     return;
@@ -1318,6 +2140,39 @@ function exportPDFCustom() {
             radial-gradient(circle at top right, var(--accent_soft_color), transparent 30%),
             var(--background_color);
         }
+        .cover{
+          min-height:calc(100vh - 48px);
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          page-break-after:always;
+          margin-bottom:24px;
+        }
+        .cover-panel{
+          width:min(100%, 1180px);
+          min-height:calc(100vh - 140px);
+          padding:56px;
+          border-radius:28px;
+          background:var(--accent_color);
+          color:var(--accent_ink_color);
+          display:flex;
+          flex-direction:column;
+          align-items:center;
+          justify-content:center;
+          gap:36px;
+          text-align:center;
+          box-shadow:var(--shadow_soft);
+        }
+        .cover-panel img{
+          width:min(76vw, 620px);
+          max-height:38vh;
+          object-fit:contain;
+        }
+        .cover-panel h1{
+          margin:0;
+          font-size:clamp(3.2rem, 5vw, 5.6rem);
+          color:var(--accent_ink_color);
+        }
         .banner{
           display:flex;
           align-items:center;
@@ -1326,8 +2181,6 @@ function exportPDFCustom() {
           border-bottom:1px solid var(--border_strong_color);
           margin-bottom:28px;
         }
-        .banner img{width:180px;height:auto;object-fit:contain;}
-        .banner h1{margin:0;font-size:32px;color:var(--text_color);}
         .cards{display:block;margin:28px 0 36px;}
         .card{
           border:1px solid var(--border_color);
@@ -1350,7 +2203,6 @@ function exportPDFCustom() {
           min-height:900px;
           object-fit:contain;
         }
-        .card-title{margin:18px 0 0;font-size:24px;font-weight:700;color:var(--text_color);text-align:center;}
         h2{color:var(--text_color);margin:0 0 16px;}
         .cat{
           margin-top:18px;
@@ -1376,6 +2228,16 @@ function exportPDFCustom() {
         }
         @media print{
           body{padding:16px;}
+          .cover{
+            min-height:calc(100vh - 32px);
+            margin-bottom:0;
+          }
+          .cover-panel{
+            width:100%;
+            min-height:calc(100vh - 64px);
+            padding:40px;
+            border-radius:24px;
+          }
           .card{
             min-height:calc(100vh - 64px);
             margin-bottom:0;
@@ -1388,23 +2250,22 @@ function exportPDFCustom() {
       </style>
     </head>
     <body>
-      <div class="banner">
-        <img src="${assets.logo}" alt="Logo Akteo">
-        <h1>Atelier ClimAdapt</h1>
+      <div class="cover">
+        <div class="cover-panel">
+          <img src="${assets.logo}" alt="Logo Akteo">
+          <h1>Atelier ClimAdapt</h1>
+        </div>
       </div>
 
       <div class="cards">
         <div class="card">
           <img src="${assets.riskCard}" alt="Fiche calcul risque">
-          <div class="card-title">Calcul risque</div>
         </div>
         <div class="card">
           <img src="${assets.adaptationPathCard}" alt="Fiche chemin adaptation">
-          <div class="card-title">Chemin adaptation</div>
         </div>
         <div class="card">
           <img src="${assets.bestPracticesCard}" alt="Fiche bonnes pratiques">
-          <div class="card-title">Bonnes pratiques</div>
         </div>
       </div>
 
@@ -1430,7 +2291,7 @@ function exportPDFCustom() {
   }
 }
 
-exportPDF = exportPDFCustom;
+exportPDF = exportPDFEnhanced;
 
 window.setMode = setMode;
 window.startWorkshop = startWorkshop;
