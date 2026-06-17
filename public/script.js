@@ -16,6 +16,7 @@ let roomRef = null;
 let sessionRole = null;
 let appBootstrapped = false;
 let masterClaimAttempted = false;
+let selectedRoomNumber = null;
 let actionsCsvSnapshot = "";
 let actionsCsvPollHandle = null;
 
@@ -33,16 +34,40 @@ const FIREBASE_CONFIG = {
   appId: "1:1070521178456:web:448844a4127d729cfaad2d",
 };
 
-const ROOM_PATH = "rooms/public-room";
 const ACCESS_CODES = {
   "0000": "player",
   "1702": "master",
 };
+const MIN_ROOM_NUMBER = 1;
+const MAX_ROOM_NUMBER = 99;
 
 function getFirebaseAppName(role) {
   return role === "master"
     ? "climadapt-master-session"
     : "climadapt-player-session";
+}
+
+function buildRoomPath(roomNumber) {
+  return `rooms/${roomNumber}`;
+}
+
+function parseRoomNumber(value) {
+  const normalizedValue = String(value || "").trim();
+
+  if (!/^\d{1,2}$/.test(normalizedValue)) {
+    return null;
+  }
+
+  const roomNumber = Number(normalizedValue);
+  if (
+    !Number.isInteger(roomNumber) ||
+    roomNumber < MIN_ROOM_NUMBER ||
+    roomNumber > MAX_ROOM_NUMBER
+  ) {
+    return null;
+  }
+
+  return roomNumber;
 }
 const RESOURCE_CATEGORY_ORDER = [
   "Ressources Techniques",
@@ -206,6 +231,13 @@ function setRoleBadge(text) {
   }
 }
 
+function setRoomBadge(roomNumber) {
+  const roomBadge = document.getElementById("roomBadge");
+  if (roomBadge) {
+    roomBadge.textContent = roomNumber ? `Room ${roomNumber}` : "Room -";
+  }
+}
+
 function isCurrentUserMaster() {
   return Boolean(
     sessionRole === "master" &&
@@ -220,6 +252,23 @@ function setRoleGateError(text) {
   if (roleGateError) {
     roleGateError.textContent = text || "";
   }
+}
+
+function setRoomGateError(text) {
+  const roomGateError = document.getElementById("roomGateError");
+  if (roomGateError) {
+    roomGateError.textContent = text || "";
+  }
+}
+
+function showRoomGateStep() {
+  document.getElementById("roomGateStep")?.classList.remove("hidden");
+  document.getElementById("roleGateStep")?.classList.add("hidden");
+}
+
+function showRoleGateStep() {
+  document.getElementById("roomGateStep")?.classList.add("hidden");
+  document.getElementById("roleGateStep")?.classList.remove("hidden");
 }
 
 function hideRoleGate() {
@@ -259,7 +308,14 @@ async function bootstrapApp(role) {
     return;
   }
 
+  if (!selectedRoomNumber) {
+    setRoleGateError("Choisissez une room valide.");
+    showRoomGateStep();
+    return;
+  }
+
   sessionRole = role;
+  setRoomBadge(selectedRoomNumber);
   setRoleBadge(role === "master" ? "Maître de partie" : "Joueur");
   setRoleGateError("Chargement en cours...");
   const submit = document.getElementById("roleCodeSubmit");
@@ -298,6 +354,29 @@ async function bootstrapApp(role) {
       input.focus();
     }
   }
+}
+
+function handleRoomNumberSubmit() {
+  const input = document.getElementById("roomNumberInput");
+  const roomNumber = parseRoomNumber(input?.value);
+
+  if (!roomNumber) {
+    setRoomGateError("Saisissez un numéro de room entre 1 et 99.");
+    return;
+  }
+
+  selectedRoomNumber = roomNumber;
+  setRoomBadge(roomNumber);
+  setRoomGateError("");
+  setRoleGateError("");
+  showRoleGateStep();
+
+  const label = document.getElementById("selectedRoomLabel");
+  if (label) {
+    label.textContent = `Room ${roomNumber}`;
+  }
+
+  document.getElementById("roleCodeInput")?.focus();
 }
 
 function handleRoleCodeSubmit() {
@@ -1582,7 +1661,7 @@ function initFirebase() {
 
   firebaseAuth = firebase.auth(firebaseApp);
   firebaseDb = firebase.database(firebaseApp);
-  roomRef = firebaseDb.ref(ROOM_PATH);
+  roomRef = firebaseDb.ref(buildRoomPath(selectedRoomNumber));
 
   firebaseAuth
     .setPersistence(firebase.auth.Auth.Persistence.LOCAL)
@@ -1596,6 +1675,7 @@ function initFirebase() {
       return;
     }
 
+    await ensureRoomExists();
     isMaster = isCurrentUserMaster();
     updatePermissionUI();
     maybeRender();
@@ -1614,6 +1694,30 @@ function initFirebase() {
         "Connexion anonyme Firebase impossible. Active l'authentification anonyme."
       );
     });
+  }
+}
+
+async function ensureRoomExists() {
+  if (!roomRef || roomInitialized) {
+    return;
+  }
+
+  try {
+    await roomRef.transaction((current) => {
+      if (current) {
+        return current;
+      }
+
+      return {
+        ...DEFAULT_ROOM_STATE,
+        updatedAt: Date.now(),
+      };
+    });
+    roomInitialized = true;
+  } catch (error) {
+    console.error(error);
+    showMessage("Impossible de créer ou rejoindre la room Firebase.");
+    throw error;
   }
 }
 
@@ -2059,9 +2163,26 @@ function applyInitialVisibility() {
 function initRoleGate() {
   showRoleGate();
 
+  const roomForm = document.getElementById("roomGateForm");
+  const roomInput = document.getElementById("roomNumberInput");
   const form = document.getElementById("roleGateForm");
   const input = document.getElementById("roleCodeInput");
   const submit = document.getElementById("roleCodeSubmit");
+  const backButton = document.getElementById("roleGateBack");
+
+  showRoomGateStep();
+
+  roomForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    handleRoomNumberSubmit();
+  });
+
+  roomInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleRoomNumberSubmit();
+    }
+  });
 
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -2080,7 +2201,14 @@ function initRoleGate() {
     }
   });
 
-  input?.focus();
+  backButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    setRoleGateError("");
+    showRoomGateStep();
+    roomInput?.focus();
+  });
+
+  roomInput?.focus();
 }
 
 applyInitialVisibility();

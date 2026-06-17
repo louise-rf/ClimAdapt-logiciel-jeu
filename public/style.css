@@ -1146,6 +1146,16 @@
     font-weight: 700;
   }
 
+  .role-gate__button + .role-gate__button {
+    margin-top: 0.65rem;
+  }
+
+  .role-gate__button--secondary {
+    border-color: var(--border_strong_color);
+    background: transparent;
+    color: var(--text_color);
+  }
+
   .role-gate__error {
     min-height: 1.2em;
     margin: 0.8rem 0 0;

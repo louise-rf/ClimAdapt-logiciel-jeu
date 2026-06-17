@@ -5,38 +5,66 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Jeu Adaptation</title>
-  <link rel="stylesheet" href="style.css?v=20260611-1" />
+  <link rel="stylesheet" href="style.css?v=20260617-1" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js" defer></script>
-  <script src="script.js?v=20260611-1" defer></script>
+  <script src="script.js?v=20260617-1" defer></script>
 </head>
 
 <body data-actions-csv="actions_selection.csv?v=20260612-1">
   <div class="role-gate" id="roleGate">
     <div class="role-gate__card">
-      <p class="role-gate__eyebrow">Accès à la partie</p>
+      <p class="role-gate__eyebrow">Acces a la partie</p>
       <h1 class="role-gate__title">ClimAdapt</h1>
-      <p class="role-gate__text">Saisissez votre code de session (0000) pour entrer dans l’atelier.</p>
-      <form class="role-gate__form" id="roleGateForm">
-        <label class="role-gate__label" for="roleCodeInput">Code</label>
-        <input
-          id="roleCodeInput"
-          class="role-gate__input"
-          type="password"
-          inputmode="numeric"
-          autocomplete="off"
-          maxlength="4"
-          placeholder="••••"
-        />
+      <div id="roomGateStep">
+        <p class="role-gate__text">Choisissez un numero de room entre 1 et 99. Si la room n'existe pas, elle sera creee vide.</p>
+        <form class="role-gate__form" id="roomGateForm">
+          <label class="role-gate__label" for="roomNumberInput">Room</label>
+          <input
+            id="roomNumberInput"
+            class="role-gate__input"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
+            maxlength="2"
+            placeholder="01"
+          />
 
-        <button class="role-gate__button" id="roleCodeSubmit" type="submit">
-          Valider
-        </button>
+          <button class="role-gate__button" type="submit">
+            Continuer
+          </button>
 
-        <p class="role-gate__error" id="roleGateError" aria-live="polite"></p>
-      </form>
+          <p class="role-gate__error" id="roomGateError" aria-live="polite"></p>
+        </form>
+      </div>
+
+      <div id="roleGateStep" class="hidden">
+        <p class="role-gate__text">Room selectionnee : <strong id="selectedRoomLabel">Room -</strong></p>
+        <p class="role-gate__text">Saisissez votre code de session pour entrer dans l'atelier.</p>
+        <form class="role-gate__form" id="roleGateForm">
+          <label class="role-gate__label" for="roleCodeInput">Code</label>
+          <input
+            id="roleCodeInput"
+            class="role-gate__input"
+            type="password"
+            inputmode="numeric"
+            autocomplete="off"
+            maxlength="4"
+            placeholder="****"
+          />
+
+          <button class="role-gate__button" id="roleCodeSubmit" type="submit">
+            Rejoindre
+          </button>
+          <button class="role-gate__button role-gate__button--secondary" id="roleGateBack" type="button">
+            Changer de room
+          </button>
+
+          <p class="role-gate__error" id="roleGateError" aria-live="polite"></p>
+        </form>
+      </div>
     </div>
   </div>
 
@@ -44,6 +72,7 @@
     <div class="sidebar">
       <div class="sidebar__title">Atelier ClimAdapt</div>
       <div class="sidebar__subtitle">Progression</div>
+      <div class="sidebar__subtitle" id="roomBadge">Room -</div>
       <div class="sidebar__role" id="roleBadge">Joueur</div>
 
       <div class="sidebar__content">
