@@ -3,6 +3,7 @@
 import csv
 import itertools
 import random
+import shutil
 import sys
 import unicodedata
 from collections import Counter, defaultdict
@@ -11,6 +12,7 @@ from pathlib import Path
 
 CATALOG_PATH = Path(__file__).with_name("Actions - catalogue.csv")
 OUTPUT_PATH = Path(__file__).with_name("actions_selection.csv")
+PUBLIC_OUTPUT_PATH = Path(__file__).with_name("public").joinpath("actions_selection.csv")
 
 TARGET_RESOURCE_CATEGORIES = [
     "Technique",
@@ -179,6 +181,33 @@ def prompt_target_hazards() -> list[str]:
         confirm = input("\nConfirmer ? [o/N] : ").strip().lower()
         if confirm in {"o", "oui", "y", "yes"}:
             return selected
+
+
+def prompt_yes_no(question: str) -> bool:
+    while True:
+        raw = input(f"\n{question} [o/N] : ").strip().lower()
+        if raw in {"o", "oui", "y", "yes"}:
+            return True
+        if raw in {"", "n", "non", "no"}:
+            return False
+        print("Réponse invalide. Réponds par oui ou non.")
+
+
+def normalize_bool_cell(value: str) -> bool:
+    normalized = normalize_text(value or "")
+    return normalized in {"oui", "yes", "true", "1", "x"}
+
+
+def get_row_mobility_match_priority(
+    row: dict[str, str],
+    requires_machines: bool,
+    requires_vehicles: bool,
+) -> tuple[int, int]:
+    has_machines = normalize_bool_cell(get_row_value(row, "Machines"))
+    has_vehicles = normalize_bool_cell(get_row_value(row, "Véhicules", "Vehicules"))
+    machine_priority = 0 if has_machines == requires_machines else 1
+    vehicle_priority = 0 if has_vehicles == requires_vehicles else 1
+    return machine_priority, vehicle_priority
 
 
 def get_action_title(row: dict[str, str]) -> str:
@@ -357,6 +386,8 @@ def attempt_selection(
     eligible_rows: list[dict[str, str]],
     preferred_company_categories: set[str],
     selected_hazards: set[str],
+    requires_machines: bool,
+    requires_vehicles: bool,
     rng: random.Random,
     forced_rows: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]] | None:
@@ -474,11 +505,16 @@ def attempt_selection(
                 term_availability = available_rows_by_term(used)
                 hazard_availability = available_rows_by_hazard(used)
 
-                def candidate_priority(row: dict[str, str]) -> tuple[int, int, int, int, int, int, int, int, float]:
+                def candidate_priority(row: dict[str, str]) -> tuple[int, int, int, int, int, int, int, int, int, int, float]:
                     score = parse_score(row)
                     term = get_row_value(row, "Temps")
                     company = get_row_value(row, "Catégorie entreprise", "Catégorie entreprise")
                     row_hazards = get_row_hazards(row) & selected_hazards
+                    machine_priority, vehicle_priority = get_row_mobility_match_priority(
+                        row,
+                        requires_machines,
+                        requires_vehicles,
+                    )
                     hazard_need = 0 if any(hazard_counts[hazard] < PER_HAZARD_MIN_TARGET for hazard in row_hazards) else 1
                     uncovered_hazard_count = -sum(
                         1 for hazard in row_hazards if hazard_counts[hazard] < PER_HAZARD_MIN_TARGET
@@ -496,6 +532,8 @@ def attempt_selection(
                         hazard_rarity,
                         score_need,
                         term_need,
+                        machine_priority,
+                        vehicle_priority,
                         company_need,
                         score_availability[score],
                         term_availability[term],
@@ -551,6 +589,8 @@ def best_effort_selection(
     eligible_rows: list[dict[str, str]],
     preferred_company_categories: set[str],
     selected_hazards: set[str],
+    requires_machines: bool,
+    requires_vehicles: bool,
     rng: random.Random,
     forced_rows: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]]:
@@ -593,11 +633,16 @@ def best_effort_selection(
                 for hazard in get_row_hazards(row) & selected_hazards:
                     hazard_pool[hazard] += 1
 
-            def priority(row: dict[str, str]) -> tuple[int, int, int, int, int, int, int, int, float]:
+            def priority(row: dict[str, str]) -> tuple[int, int, int, int, int, int, int, int, int, int, float]:
                 score = parse_score(row)
                 term = get_row_value(row, "Temps")
                 company = get_row_value(row, "Catégorie entreprise", "Catégorie entreprise")
                 row_hazards = get_row_hazards(row) & selected_hazards
+                machine_priority, vehicle_priority = get_row_mobility_match_priority(
+                    row,
+                    requires_machines,
+                    requires_vehicles,
+                )
                 hazard_need = 0 if any(hazard_counts[hazard] < PER_HAZARD_MIN_TARGET for hazard in row_hazards) else 1
                 uncovered_hazard_count = -sum(
                     1 for hazard in row_hazards if hazard_counts[hazard] < PER_HAZARD_MIN_TARGET
@@ -612,6 +657,8 @@ def best_effort_selection(
                     hazard_rarity,
                     score_need,
                     term_need,
+                    machine_priority,
+                    vehicle_priority,
                     company_need,
                     score_pool[score],
                     term_pool[term],
@@ -708,10 +755,17 @@ def write_output(rows: list[dict[str, str]], output_path: Path) -> None:
         writer.writerows(rows)
 
 
+def sync_output_to_public(source_path: Path, public_path: Path) -> None:
+    public_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source_path, public_path)
+
+
 def print_summary(
     rows: list[dict[str, str]],
     preferred_company_categories: set[str],
     selected_hazards: set[str],
+    requires_machines: bool,
+    requires_vehicles: bool,
 ) -> None:
     print("\nSélection finale :")
     by_resource = defaultdict(list)
@@ -734,6 +788,16 @@ def print_summary(
     total_scores = count_scores(rows)
     total_hazards = count_target_hazards(rows, selected_hazards)
     fallback_count = len(rows) - preferred_count
+    machine_matches = sum(
+        1
+        for row in rows
+        if normalize_bool_cell(get_row_value(row, "Machines")) == requires_machines
+    )
+    vehicle_matches = sum(
+        1
+        for row in rows
+        if normalize_bool_cell(get_row_value(row, "Véhicules", "Vehicules")) == requires_vehicles
+    )
     missing_scores = [score for score, target in SCORE_TARGETS.items() if total_scores[score] < target]
     print("\nScores globaux :")
     print(", ".join(f"{score}={total_scores[score]}" for score in range(11)))
@@ -748,7 +812,10 @@ def print_summary(
         )
     print(f"\nActions issues des catégories choisies : {preferred_count}")
     print(f"Actions issues d'autres catégories entreprise : {fallback_count}")
+    print(f"Correspondance Machines : {machine_matches}/{len(rows)}")
+    print(f"Correspondance Véhicules : {vehicle_matches}/{len(rows)}")
     print(f"\nCSV généré : {OUTPUT_PATH}")
+    print(f"CSV public synchronisé : {PUBLIC_OUTPUT_PATH}")
 
 
 def main() -> int:
@@ -765,6 +832,8 @@ def main() -> int:
     selected_company_categories = prompt_company_categories(company_categories)
     preferred_company_categories = set(selected_company_categories)
     selected_hazards = set(prompt_target_hazards())
+    requires_machines = prompt_yes_no("Le client a-t-il des machines ?")
+    requires_vehicles = prompt_yes_no("Le client a-t-il des voitures ?")
     forced_rows = prompt_forced_actions(rows, selected_hazards)
 
     if len(forced_rows) > PER_RESOURCE_TARGET * len(TARGET_RESOURCE_CATEGORIES):
@@ -834,6 +903,8 @@ def main() -> int:
             eligible_rows,
             preferred_company_categories,
             selected_hazards,
+            requires_machines,
+            requires_vehicles,
             rng,
             forced_rows,
         )
@@ -855,14 +926,23 @@ def main() -> int:
             eligible_rows,
             preferred_company_categories,
             selected_hazards,
+            requires_machines,
+            requires_vehicles,
             random.SystemRandom(),
             forced_rows,
         )
 
     write_output(selected, OUTPUT_PATH)
+    sync_output_to_public(OUTPUT_PATH, PUBLIC_OUTPUT_PATH)
     print(f"\nCSV mis ? jour : {OUTPUT_PATH}")
     try:
-        print_summary(selected, preferred_company_categories, selected_hazards)
+        print_summary(
+            selected,
+            preferred_company_categories,
+            selected_hazards,
+            requires_machines,
+            requires_vehicles,
+        )
     except Exception:
         pass
     return 0

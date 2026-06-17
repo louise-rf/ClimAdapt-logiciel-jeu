@@ -355,10 +355,11 @@
     flex-direction: column;
     gap: 0.6rem;
     min-height: 100%;
-    padding: 0.75rem;
+    padding: 0.75rem 3.7rem 0.75rem 0.75rem;
     background: var(--surface_color);
     backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
+    position: relative;
   }
 
   .action-card__face--back {
@@ -371,6 +372,56 @@
     flex-direction: column;
     gap: 0.25rem;
     flex: 1;
+  }
+
+  .action-card__credit-meter {
+    position: absolute;
+    top: 0.7rem;
+    right: 0.65rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    width: 2.1rem;
+  }
+
+  .action-card__credit-value {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--muted_color);
+    line-height: 1;
+  }
+
+  .action-card__credit-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.28rem;
+  }
+
+  .action-card__credit-circle {
+    --credit-fill: 0;
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 1.45rem;
+    height: 1.45rem;
+    border-radius: 999px;
+    border: 1px solid rgba(16, 48, 16, 0.28);
+    background:
+      linear-gradient(
+        to top,
+        rgba(153, 255, 153, 0.95) calc(var(--credit-fill) * 100%),
+        rgba(153, 255, 153, 0.14) calc(var(--credit-fill) * 100%)
+      );
+    color: #103010;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+  }
+
+  .action-card__credit-symbol {
+    font-size: 0.72rem;
+    font-weight: 800;
+    line-height: 1;
   }
 
   .action-card__title {

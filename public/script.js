@@ -91,6 +91,7 @@ const grid = document.getElementById("grid");
 const categoryFilterSelect = document.getElementById("categoryFilter");
 const ACTIONS_CSV_POLL_INTERVAL_MS = 15000;
 const PERFECT_SELECTION_SIZE = 15;
+const CREDIT_HALF_UNIT = 0.5;
 const PERFECT_TAG_BITS = {
   1: 1 << 0,
   2: 1 << 1,
@@ -108,6 +109,7 @@ const PERFECT_REQUIRED_TAG_MASK = Object.values(PERFECT_TAG_BITS).reduce(
 const PERFECT_ALL_CATEGORY_MASK = (1 << RESOURCE_CATEGORY_ORDER.length) - 1;
 let perfectScoreAnalysis = null;
 let perfectScoreAnalysisToken = 0;
+let creditBudgetHalfUnits = 0;
 
 function normalizeTextKey(value) {
   return (value || "")
@@ -215,6 +217,73 @@ function formatActionLabel(action) {
     /\(ex\s*:\s*(.*?)\)/g,
     '<span class="ex">(ex : $1)</span>'
   );
+}
+
+function parseNormalizedCredit(value) {
+  const normalized = String(value || "")
+    .replace(",", ".")
+    .trim();
+  const amount = Number(normalized);
+
+  if (!Number.isFinite(amount)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(3, amount));
+}
+
+function formatCreditAmount(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) {
+    return "0";
+  }
+  if (Number.isInteger(amount)) {
+    return String(amount);
+  }
+  return amount.toFixed(1).replace(".", ",");
+}
+
+function formatNormalizedCredit(value) {
+  return formatCreditAmount(parseNormalizedCredit(value));
+}
+
+function creditToHalfUnits(value) {
+  return Math.max(0, Math.round(parseNormalizedCredit(value) / CREDIT_HALF_UNIT));
+}
+
+function halfUnitsToCredit(value) {
+  return Number(value || 0) * CREDIT_HALF_UNIT;
+}
+
+function formatCreditAmountFromHalfUnits(value) {
+  return formatCreditAmount(halfUnitsToCredit(value));
+}
+
+function buildCreditMeterMarkup(action) {
+  const creditValue = parseNormalizedCredit(action.creditNormalized);
+  const circles = [0, 1, 2]
+    .map((index) => {
+      const fill = Math.max(0, Math.min(1, creditValue - index));
+      return `
+        <span
+          class="action-card__credit-circle"
+          style="--credit-fill:${fill};"
+          aria-hidden="true"
+        >
+          <span class="action-card__credit-symbol">&euro;</span>
+        </span>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="action-card__credit-meter" aria-label="Crédit ${formatNormalizedCredit(creditValue)} sur 3">
+      <span class="action-card__credit-value">${formatNormalizedCredit(creditValue)}</span>
+      <span class="action-card__credit-stack">
+        ${circles}
+      </span>
+    </div>
+  `;
 }
 
 function showMessage(message) {
@@ -441,6 +510,13 @@ function getSelectedActionsFromState(state) {
   return actions.filter((action) => selectedIds[String(action.id)]);
 }
 
+function getSelectionCreditHalfUnits(selectedActions) {
+  return selectedActions.reduce(
+    (total, action) => total + creditToHalfUnits(action.creditNormalized),
+    0
+  );
+}
+
 function getOrderedCategories() {
   const categories = [...new Set(
     actions
@@ -627,6 +703,7 @@ function getOptimizationSignature(action) {
     categoryBit: getCategoryBit(category),
     natureCount: category.includes("Nature") ? 1 : 0,
     techCount: category.includes("Techniques") ? 1 : 0,
+    creditHalfUnits: creditToHalfUnits(action.creditNormalized),
   };
 }
 
@@ -642,6 +719,7 @@ function buildOptimizationGroups() {
       signature.categoryBit,
       signature.natureCount,
       signature.techCount,
+      signature.creditHalfUnits,
     ].join("|");
 
     if (!groupsBySignature.has(key)) {
@@ -716,6 +794,7 @@ function analyzePerfectSelections() {
       count: 0n,
       totalCombinations: 0n,
       sampleSelections: [],
+      budgetHalfUnits: 0,
     };
   }
 
@@ -755,6 +834,118 @@ function analyzePerfectSelections() {
         natureCount,
         techCount
       )
+        ? { count: 1n, totalCreditHalfUnits: 0n }
+        : { count: 0n, totalCreditHalfUnits: 0n };
+    }
+
+    if (groupIndex >= groups.length || remaining > suffixCounts[groupIndex]) {
+      return { count: 0n, totalCreditHalfUnits: 0n };
+    }
+
+    if (((mask | suffixMasks[groupIndex]) & PERFECT_REQUIRED_TAG_MASK) !== PERFECT_REQUIRED_TAG_MASK) {
+      return { count: 0n, totalCreditHalfUnits: 0n };
+    }
+
+    if (((categoryMask | suffixCategoryMasks[groupIndex]) & PERFECT_ALL_CATEGORY_MASK) !== PERFECT_ALL_CATEGORY_MASK) {
+      return { count: 0n, totalCreditHalfUnits: 0n };
+    }
+
+    if (tagFiveCount + suffixTagFiveCounts[groupIndex] < 2) {
+      return { count: 0n, totalCreditHalfUnits: 0n };
+    }
+
+    const key = [
+      groupIndex,
+      remaining,
+      mask,
+      tagFiveCount,
+      categoryMask,
+      natureCount,
+      techCount,
+    ].join("|");
+
+    if (memo.has(key)) {
+      return memo.get(key);
+    }
+
+    const group = groups[groupIndex];
+    let total = 0n;
+    let totalCreditHalfUnits = 0n;
+    const maxTake = Math.min(remaining, group.count);
+
+    for (let take = 0; take <= maxTake; take++) {
+      if (group.blocksPerfectScore && take > 0) {
+        break;
+      }
+
+      const nextMask = take > 0 ? mask | group.tagMask : mask;
+      const nextTagFiveCount = Math.min(2, tagFiveCount + take * group.tagFiveCount);
+      const nextCategoryMask = take > 0 ? categoryMask | group.categoryBit : categoryMask;
+      const nextNatureCount = natureCount + take * group.natureCount;
+      const nextTechCount = techCount + take * group.techCount;
+      const remainder = countSolutions(
+        groupIndex + 1,
+        remaining - take,
+        nextMask,
+        nextTagFiveCount,
+        nextCategoryMask,
+        nextNatureCount,
+        nextTechCount
+      );
+
+      if (remainder.count > 0n) {
+        const combinations = combine(group.count, take);
+        const branchCount = combinations * remainder.count;
+        const branchCreditHalfUnits =
+          combinations *
+          (remainder.totalCreditHalfUnits +
+            remainder.count * BigInt(take * group.creditHalfUnits));
+        total += branchCount;
+        totalCreditHalfUnits += branchCreditHalfUnits;
+      }
+    }
+
+    const result = {
+      count: total,
+      totalCreditHalfUnits,
+    };
+    memo.set(key, result);
+    return result;
+  }
+
+  const metrics = countSolutions(0, PERFECT_SELECTION_SIZE, 0, 0, 0, 0, 0);
+  const count = metrics.count;
+  const budgetHalfUnits =
+    count > 0n
+      ? Number(
+          (metrics.totalCreditHalfUnits + count - 1n) / count
+        )
+      : 0;
+
+  const budgetMemo = new Map();
+
+  function countSolutionsWithinBudget(
+    groupIndex,
+    remaining,
+    mask,
+    tagFiveCount,
+    categoryMask,
+    natureCount,
+    techCount,
+    remainingBudgetHalfUnits
+  ) {
+    if (remainingBudgetHalfUnits < 0) {
+      return 0n;
+    }
+
+    if (remaining === 0) {
+      return isPerfectSelectionState(
+        mask,
+        tagFiveCount,
+        categoryMask,
+        natureCount,
+        techCount
+      )
         ? 1n
         : 0n;
     }
@@ -783,18 +974,30 @@ function analyzePerfectSelections() {
       categoryMask,
       natureCount,
       techCount,
+      remainingBudgetHalfUnits,
     ].join("|");
 
-    if (memo.has(key)) {
-      return memo.get(key);
+    if (budgetMemo.has(key)) {
+      return budgetMemo.get(key);
     }
 
     const group = groups[groupIndex];
     let total = 0n;
-    const maxTake = Math.min(remaining, group.count);
+    const maxTake = group.creditHalfUnits > 0
+      ? Math.min(
+          remaining,
+          group.count,
+          Math.floor(remainingBudgetHalfUnits / group.creditHalfUnits)
+        )
+      : Math.min(remaining, group.count);
 
     for (let take = 0; take <= maxTake; take++) {
       if (group.blocksPerfectScore && take > 0) {
+        break;
+      }
+
+      const cost = take * group.creditHalfUnits;
+      if (cost > remainingBudgetHalfUnits) {
         break;
       }
 
@@ -803,14 +1006,15 @@ function analyzePerfectSelections() {
       const nextCategoryMask = take > 0 ? categoryMask | group.categoryBit : categoryMask;
       const nextNatureCount = natureCount + take * group.natureCount;
       const nextTechCount = techCount + take * group.techCount;
-      const remainder = countSolutions(
+      const remainder = countSolutionsWithinBudget(
         groupIndex + 1,
         remaining - take,
         nextMask,
         nextTagFiveCount,
         nextCategoryMask,
         nextNatureCount,
-        nextTechCount
+        nextTechCount,
+        remainingBudgetHalfUnits - cost
       );
 
       if (remainder > 0n) {
@@ -818,7 +1022,7 @@ function analyzePerfectSelections() {
       }
     }
 
-    memo.set(key, total);
+    budgetMemo.set(key, total);
     return total;
   }
 
@@ -830,8 +1034,13 @@ function analyzePerfectSelections() {
     categoryMask,
     natureCount,
     techCount,
-    selections
+    selections,
+    remainingBudgetHalfUnits
   ) {
+    if (remainingBudgetHalfUnits < 0) {
+      return null;
+    }
+
     if (remaining === 0) {
       return isPerfectSelectionState(
         mask,
@@ -852,19 +1061,25 @@ function analyzePerfectSelections() {
         break;
       }
 
+      const cost = take * group.creditHalfUnits;
+      if (cost > remainingBudgetHalfUnits) {
+        break;
+      }
+
       const nextMask = take > 0 ? mask | group.tagMask : mask;
       const nextTagFiveCount = Math.min(2, tagFiveCount + take * group.tagFiveCount);
       const nextCategoryMask = take > 0 ? categoryMask | group.categoryBit : categoryMask;
       const nextNatureCount = natureCount + take * group.natureCount;
       const nextTechCount = techCount + take * group.techCount;
-      const remainder = countSolutions(
+      const remainder = countSolutionsWithinBudget(
         groupIndex + 1,
         remaining - take,
         nextMask,
         nextTagFiveCount,
         nextCategoryMask,
         nextNatureCount,
-        nextTechCount
+        nextTechCount,
+        remainingBudgetHalfUnits - cost
       );
 
       if (remainder > 0n) {
@@ -880,7 +1095,8 @@ function analyzePerfectSelections() {
           nextCategoryMask,
           nextNatureCount,
           nextTechCount,
-          nextSelections
+          nextSelections,
+          remainingBudgetHalfUnits - cost
         );
 
         if (result) {
@@ -920,8 +1136,13 @@ function analyzePerfectSelections() {
     natureCount,
     techCount,
     selections,
-    mode
+    mode,
+    remainingBudgetHalfUnits
   ) {
+    if (remainingBudgetHalfUnits < 0) {
+      return null;
+    }
+
     if (remaining === 0) {
       return isPerfectSelectionState(
         mask,
@@ -943,19 +1164,25 @@ function analyzePerfectSelections() {
         continue;
       }
 
+      const cost = take * group.creditHalfUnits;
+      if (cost > remainingBudgetHalfUnits) {
+        continue;
+      }
+
       const nextMask = take > 0 ? mask | group.tagMask : mask;
       const nextTagFiveCount = Math.min(2, tagFiveCount + take * group.tagFiveCount);
       const nextCategoryMask = take > 0 ? categoryMask | group.categoryBit : categoryMask;
       const nextNatureCount = natureCount + take * group.natureCount;
       const nextTechCount = techCount + take * group.techCount;
-      const remainder = countSolutions(
+      const remainder = countSolutionsWithinBudget(
         groupIndex + 1,
         remaining - take,
         nextMask,
         nextTagFiveCount,
         nextCategoryMask,
         nextNatureCount,
-        nextTechCount
+        nextTechCount,
+        remainingBudgetHalfUnits - cost
       );
 
       if (remainder === 0n) {
@@ -983,7 +1210,8 @@ function analyzePerfectSelections() {
         nextNatureCount,
         nextTechCount,
         [...selections, ...chosenActions],
-        mode
+        mode,
+        remainingBudgetHalfUnits - cost
       );
 
       if (result) {
@@ -994,18 +1222,17 @@ function analyzePerfectSelections() {
     return null;
   }
 
-  const count = countSolutions(0, PERFECT_SELECTION_SIZE, 0, 0, 0, 0, 0);
   const totalCombinations = combine(actions.length, PERFECT_SELECTION_SIZE);
   const sampleSelections = [];
   const seen = new Set();
 
   if (count > 0n) {
     const primarySample =
-      buildSample(0, PERFECT_SELECTION_SIZE, 0, 0, 0, 0, 0, []) || [];
+      buildSample(0, PERFECT_SELECTION_SIZE, 0, 0, 0, 0, 0, [], budgetHalfUnits) || [];
     const variants = [
       primarySample,
-      buildVariantSample(0, PERFECT_SELECTION_SIZE, 0, 0, 0, 0, 0, [], "desc") || [],
-      buildVariantSample(0, PERFECT_SELECTION_SIZE, 0, 0, 0, 0, 0, [], "center") || [],
+      buildVariantSample(0, PERFECT_SELECTION_SIZE, 0, 0, 0, 0, 0, [], "desc", budgetHalfUnits) || [],
+      buildVariantSample(0, PERFECT_SELECTION_SIZE, 0, 0, 0, 0, 0, [], "center", budgetHalfUnits) || [],
     ];
 
     variants.forEach((selection) => {
@@ -1025,6 +1252,7 @@ function analyzePerfectSelections() {
     count,
     totalCombinations,
     sampleSelections,
+    budgetHalfUnits,
   };
 }
 
@@ -1067,7 +1295,9 @@ function renderMasterPerfectPanel() {
     perfectScoreAnalysis.totalCombinations
   );
   countEl.textContent = percentage;
-  statusEl.textContent = "Trois exemples de lots menant a 10/10.";
+  statusEl.textContent = `Trois exemples de lots menant a 10/10 sous ${formatCreditAmountFromHalfUnits(
+    perfectScoreAnalysis.budgetHalfUnits
+  )} credits.`;
   listEl.innerHTML = perfectScoreAnalysis.sampleSelections
     .slice(0, 3)
     .map((selection, index) => {
@@ -1076,6 +1306,9 @@ function renderMasterPerfectPanel() {
         const rightNumber = displayNumberMap.get(String(right.id)) || right.id;
         return leftNumber - rightNumber;
       });
+      const selectionCredits = formatCreditAmountFromHalfUnits(
+        getSelectionCreditHalfUnits(sortedSelection)
+      );
       const items = sortedSelection
         .map((action) => {
           const displayNumber = displayNumberMap.get(String(action.id)) || action.id;
@@ -1086,20 +1319,25 @@ function renderMasterPerfectPanel() {
           return `<li><strong>${displayNumber}.</strong> ${action.title}${axesLabel}</li>`;
         })
         .join("");
-      return `<li><strong>Lot ${index + 1}</strong><ol>${items}</ol></li>`;
+      return `<li><strong>Lot ${index + 1}</strong> (${selectionCredits} credits)<ol>${items}</ol></li>`;
     })
     .join("");
 }
 
 function schedulePerfectScoreAnalysis() {
   perfectScoreAnalysis = null;
+  creditBudgetHalfUnits = 0;
   renderMasterPerfectPanel();
 
-  if (sessionRole !== "master" || actions.length < PERFECT_SELECTION_SIZE) {
+  if (actions.length < PERFECT_SELECTION_SIZE) {
     perfectScoreAnalysis = {
       count: 0n,
-      sampleActions: [],
+      totalCombinations: 0n,
+      sampleSelections: [],
+      budgetHalfUnits: 0,
     };
+    creditBudgetHalfUnits = 0;
+    maybeRender();
     renderMasterPerfectPanel();
     return;
   }
@@ -1112,14 +1350,19 @@ function schedulePerfectScoreAnalysis() {
 
     try {
       perfectScoreAnalysis = analyzePerfectSelections();
+      creditBudgetHalfUnits = perfectScoreAnalysis.budgetHalfUnits || 0;
     } catch (error) {
       console.error(error);
       perfectScoreAnalysis = {
         count: 0n,
-        sampleActions: [],
+        totalCombinations: 0n,
+        sampleSelections: [],
+        budgetHalfUnits: 0,
       };
+      creditBudgetHalfUnits = 0;
     }
 
+    maybeRender();
     renderMasterPerfectPanel();
   }, 0);
 }
@@ -1412,6 +1655,7 @@ function buildActionCardMarkup(action, number) {
   return `
     <div class="action-card__inner">
       <div class="action-card__face action-card__face--front">
+        ${buildCreditMeterMarkup(action)}
         <input
           class="action-checkbox"
           type="checkbox"
@@ -1437,6 +1681,7 @@ function buildActionCardMarkup(action, number) {
       </div>
 
       <div class="action-card__face action-card__face--back">
+        ${buildCreditMeterMarkup(action)}
         <div class="action-card__back-copy">
           <div class="action-card__back-title">Exemple</div>
           <div class="action-card__desc">
@@ -1474,8 +1719,13 @@ function renderScoreBlock(state) {
   const metrics = computeMetricsFromSelection(selectedActions);
   const score = metrics.score;
   const selectedCount = selectedActions.length;
+  const selectedCreditHalfUnits = getSelectionCreditHalfUnits(selectedActions);
+  const selectedCredits = halfUnitsToCredit(selectedCreditHalfUnits);
+  const budgetCredits = halfUnitsToCredit(creditBudgetHalfUnits);
   const revealScore =
-    state.mode === 2 || state.mode === 3 || selectedCount === 15;
+    state.mode === 2 ||
+    state.mode === 3 ||
+    (creditBudgetHalfUnits > 0 && selectedCreditHalfUnits >= creditBudgetHalfUnits);
   const ratio = score / 10;
 
   const scoreEl = document.getElementById("score");
@@ -1503,15 +1753,28 @@ function renderScoreBlock(state) {
   }
 
   if (actionProgressFill) {
-    const actionRatio = Math.min(selectedCount, 15) / 15;
+    const actionRatio =
+      creditBudgetHalfUnits > 0
+        ? Math.min(selectedCreditHalfUnits, creditBudgetHalfUnits) / creditBudgetHalfUnits
+        : 0;
     actionProgressFill.style.width = `${actionRatio * 100}%`;
     if (actionProgress) {
-      actionProgress.classList.toggle("action-progress--full", selectedCount >= 15);
+      actionProgress.classList.toggle(
+        "action-progress--full",
+        creditBudgetHalfUnits > 0 && selectedCreditHalfUnits >= creditBudgetHalfUnits
+      );
     }
   }
 
   if (countEl) {
-    countEl.textContent = String(selectedCount);
+    countEl.textContent = formatCreditAmount(selectedCredits);
+  }
+
+  const countBudgetEl = document.getElementById("countBudget");
+  if (countBudgetEl) {
+    countBudgetEl.textContent = creditBudgetHalfUnits > 0
+      ? formatCreditAmount(budgetCredits)
+      : "...";
   }
 
   if (summary) {
@@ -1522,7 +1785,7 @@ function renderScoreBlock(state) {
 
     summary.innerHTML = `Actions : ${
       numbers.length ? numbers.join(", ") : "0 action"
-    }`;
+    }<br>Credits : ${formatCreditAmount(selectedCredits)}`;
   }
 
   updateFinalAnalysis(metrics.criteria);
@@ -1596,6 +1859,9 @@ function buildActionsFromCsvText(csvText) {
       description: getCell(row, ["Exemple"]),
       cat: category,
       tag: Number(getCell(row, ["Tag", "Score"])),
+      creditNormalized: parseNormalizedCredit(
+        getCell(row, ["Crédit normalisé", "Credit normalise"])
+      ),
     };
   });
 }
@@ -1764,6 +2030,8 @@ async function requestSelectionToggle(actionId) {
     return;
   }
 
+  let blockedByBudget = false;
+
   try {
     await roomRef.transaction((current) => {
       const next = normalizeRoomState(current);
@@ -1772,6 +2040,19 @@ async function requestSelectionToggle(actionId) {
       if (next.selectedIds[key]) {
         delete next.selectedIds[key];
       } else {
+        const targetAction = actions.find((action) => String(action.id) === key);
+        const currentCreditHalfUnits = getSelectionCreditHalfUnits(
+          getSelectedActionsFromState(next)
+        );
+        const nextCreditHalfUnits =
+          currentCreditHalfUnits +
+          creditToHalfUnits(targetAction?.creditNormalized || 0);
+
+        if (creditBudgetHalfUnits > 0 && nextCreditHalfUnits > creditBudgetHalfUnits) {
+          blockedByBudget = true;
+          return;
+        }
+
         next.selectedIds[key] = true;
       }
 
@@ -1783,6 +2064,14 @@ async function requestSelectionToggle(actionId) {
 
       return next;
     });
+
+    if (blockedByBudget) {
+      showMessage(
+        `Budget de credits atteint (${formatCreditAmountFromHalfUnits(
+          creditBudgetHalfUnits
+        )}).`
+      );
+    }
   } catch (error) {
     console.error(error);
     showMessage("Impossible de synchroniser la sélection.");
