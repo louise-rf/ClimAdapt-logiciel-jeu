@@ -91,6 +91,7 @@ const grid = document.getElementById("grid");
 const categoryFilterSelect = document.getElementById("categoryFilter");
 const ACTIONS_CSV_POLL_INTERVAL_MS = 15000;
 const PERFECT_SELECTION_SIZE = 15;
+const ROUND_ONE_SELECTION_SIZE = 15;
 const CREDIT_HALF_UNIT = 0.5;
 const PERFECT_TAG_BITS = {
   1: 1 << 0,
@@ -257,6 +258,24 @@ function halfUnitsToCredit(value) {
 
 function formatCreditAmountFromHalfUnits(value) {
   return formatCreditAmount(halfUnitsToCredit(value));
+}
+
+function isRoundOneMode(state) {
+  return Number(state?.mode) === 1;
+}
+
+function shouldRevealScore(state, selectedCount) {
+  const currentMode = Number(state?.mode) || 0;
+
+  if (currentMode === 2 || currentMode === 3) {
+    return true;
+  }
+
+  if (currentMode === 1) {
+    return selectedCount >= ROUND_ONE_SELECTION_SIZE;
+  }
+
+  return false;
 }
 
 function buildCreditMeterMarkup(action) {
@@ -707,10 +726,10 @@ function getOptimizationSignature(action) {
   };
 }
 
-function buildOptimizationGroups() {
+function buildOptimizationGroups(sourceActions = actions) {
   const groupsBySignature = new Map();
 
-  actions.forEach((action) => {
+  sourceActions.forEach((action) => {
     const signature = getOptimizationSignature(action);
     const key = [
       signature.tagMask,
@@ -751,6 +770,259 @@ function buildOptimizationGroups() {
         right.tagFiveCount;
       return leftWeight - rightWeight;
     });
+}
+
+function getSelectionOptimizationState(selectedActions) {
+  return selectedActions.reduce(
+    (acc, action) => {
+      const signature = getOptimizationSignature(action);
+      acc.mask |= signature.tagMask;
+      acc.tagFiveCount = Math.min(2, acc.tagFiveCount + signature.tagFiveCount);
+      acc.categoryMask |= signature.categoryBit;
+      acc.natureCount += signature.natureCount;
+      acc.techCount += signature.techCount;
+      acc.creditHalfUnits += signature.creditHalfUnits;
+      acc.blocksPerfectScore =
+        acc.blocksPerfectScore || signature.blocksPerfectScore;
+      return acc;
+    },
+    {
+      mask: 0,
+      tagFiveCount: 0,
+      categoryMask: 0,
+      natureCount: 0,
+      techCount: 0,
+      creditHalfUnits: 0,
+      blocksPerfectScore: false,
+    }
+  );
+}
+
+function analyzeSelectionCompletion(state) {
+  if (!state || creditBudgetHalfUnits <= 0) {
+    return {
+      status: "pending",
+      selection: [],
+    };
+  }
+
+  const selectedActions = getSelectedActionsFromState(state);
+  const selectedIds = state.selectedIds || {};
+  const selectionState = getSelectionOptimizationState(selectedActions);
+  const remainingBudgetHalfUnits =
+    creditBudgetHalfUnits - selectionState.creditHalfUnits;
+
+  if (remainingBudgetHalfUnits < 0 || selectionState.blocksPerfectScore) {
+    return {
+      status: "impossible",
+      selection: [],
+    };
+  }
+
+  if (
+    isPerfectSelectionState(
+      selectionState.mask,
+      selectionState.tagFiveCount,
+      selectionState.categoryMask,
+      selectionState.natureCount,
+      selectionState.techCount
+    )
+  ) {
+    return {
+      status: "already-perfect",
+      selection: [],
+    };
+  }
+
+  const remainingActions = actions.filter(
+    (action) => !selectedIds[String(action.id)]
+  );
+  const groups = buildOptimizationGroups(remainingActions);
+  const suffixMasks = new Array(groups.length + 1).fill(0);
+  const suffixCategoryMasks = new Array(groups.length + 1).fill(0);
+  const suffixTagFiveCounts = new Array(groups.length + 1).fill(0);
+  const suffixNatureCounts = new Array(groups.length + 1).fill(0);
+
+  for (let index = groups.length - 1; index >= 0; index--) {
+    const group = groups[index];
+    suffixMasks[index] = suffixMasks[index + 1] | group.tagMask;
+    suffixCategoryMasks[index] =
+      suffixCategoryMasks[index + 1] | group.categoryBit;
+    suffixTagFiveCounts[index] =
+      suffixTagFiveCounts[index + 1] + group.count * group.tagFiveCount;
+    suffixNatureCounts[index] =
+      suffixNatureCounts[index + 1] + group.count * group.natureCount;
+  }
+
+  function canStillReachPerfect(
+    groupIndex,
+    mask,
+    tagFiveCount,
+    categoryMask,
+    natureCount,
+    techCount
+  ) {
+    if (
+      ((mask | suffixMasks[groupIndex]) & PERFECT_REQUIRED_TAG_MASK) !==
+      PERFECT_REQUIRED_TAG_MASK
+    ) {
+      return false;
+    }
+
+    if (
+      ((categoryMask | suffixCategoryMasks[groupIndex]) &
+        PERFECT_ALL_CATEGORY_MASK) !==
+      PERFECT_ALL_CATEGORY_MASK
+    ) {
+      return false;
+    }
+
+    if (tagFiveCount + suffixTagFiveCounts[groupIndex] < 2) {
+      return false;
+    }
+
+    if (natureCount + suffixNatureCounts[groupIndex] < techCount) {
+      return false;
+    }
+
+    return true;
+  }
+
+  const memo = new Map();
+
+  function findBestCompletion(
+    groupIndex,
+    mask,
+    tagFiveCount,
+    categoryMask,
+    natureCount,
+    techCount,
+    budgetHalfUnitsLeft
+  ) {
+    if (budgetHalfUnitsLeft < 0) {
+      return null;
+    }
+
+    if (
+      isPerfectSelectionState(
+        mask,
+        tagFiveCount,
+        categoryMask,
+        natureCount,
+        techCount
+      )
+    ) {
+      return {
+        selection: [],
+        cardCount: 0,
+        creditHalfUnits: 0,
+      };
+    }
+
+    if (groupIndex >= groups.length) {
+      return null;
+    }
+
+    if (
+      !canStillReachPerfect(
+        groupIndex,
+        mask,
+        tagFiveCount,
+        categoryMask,
+        natureCount,
+        techCount
+      )
+    ) {
+      return null;
+    }
+
+    const key = [
+      groupIndex,
+      mask,
+      tagFiveCount,
+      categoryMask,
+      natureCount,
+      techCount,
+      budgetHalfUnitsLeft,
+    ].join("|");
+
+    if (memo.has(key)) {
+      return memo.get(key);
+    }
+
+    const group = groups[groupIndex];
+    const maxTake = group.creditHalfUnits > 0
+      ? Math.min(group.count, Math.floor(budgetHalfUnitsLeft / group.creditHalfUnits))
+      : group.count;
+    let best = null;
+
+    for (let take = 0; take <= maxTake; take++) {
+      if (group.blocksPerfectScore && take > 0) {
+        continue;
+      }
+
+      const cost = take * group.creditHalfUnits;
+      const nextMask = take > 0 ? mask | group.tagMask : mask;
+      const nextTagFiveCount = Math.min(2, tagFiveCount + take * group.tagFiveCount);
+      const nextCategoryMask = take > 0 ? categoryMask | group.categoryBit : categoryMask;
+      const nextNatureCount = natureCount + take * group.natureCount;
+      const nextTechCount = techCount + take * group.techCount;
+      const tail = findBestCompletion(
+        groupIndex + 1,
+        nextMask,
+        nextTagFiveCount,
+        nextCategoryMask,
+        nextNatureCount,
+        nextTechCount,
+        budgetHalfUnitsLeft - cost
+      );
+
+      if (!tail) {
+        continue;
+      }
+
+      const candidate = {
+        selection: [
+          ...group.actions.slice(0, take),
+          ...tail.selection,
+        ],
+        cardCount: take + tail.cardCount,
+        creditHalfUnits: cost + tail.creditHalfUnits,
+      };
+
+      if (
+        !best ||
+        candidate.cardCount < best.cardCount ||
+        (candidate.cardCount === best.cardCount &&
+          candidate.creditHalfUnits < best.creditHalfUnits)
+      ) {
+        best = candidate;
+      }
+    }
+
+    memo.set(key, best);
+    return best;
+  }
+
+  const result = findBestCompletion(
+    0,
+    selectionState.mask,
+    selectionState.tagFiveCount,
+    selectionState.categoryMask,
+    selectionState.natureCount,
+    selectionState.techCount,
+    remainingBudgetHalfUnits
+  );
+
+  return result
+    ? {
+        status: "ok",
+        selection: result.selection,
+      }
+    : {
+        status: "impossible",
+        selection: [],
+      };
 }
 
 function buildCombinationCounter() {
@@ -1290,38 +1562,65 @@ function renderMasterPerfectPanel() {
   }
 
   const displayNumberMap = buildDisplayedActionNumberMap();
+  const completion = analyzeSelectionCompletion(roomState);
   const percentage = formatPercentage(
     perfectScoreAnalysis.count,
     perfectScoreAnalysis.totalCombinations
   );
   countEl.textContent = percentage;
-  statusEl.textContent = `Trois exemples de lots menant a 10/10 sous ${formatCreditAmountFromHalfUnits(
+  statusEl.textContent = `Un lot de reference et le complement a selectionner pour atteindre 10/10 sous ${formatCreditAmountFromHalfUnits(
     perfectScoreAnalysis.budgetHalfUnits
   )} credits.`;
-  listEl.innerHTML = perfectScoreAnalysis.sampleSelections
-    .slice(0, 3)
-    .map((selection, index) => {
-      const sortedSelection = [...selection].sort((left, right) => {
-        const leftNumber = displayNumberMap.get(String(left.id)) || left.id;
-        const rightNumber = displayNumberMap.get(String(right.id)) || right.id;
-        return leftNumber - rightNumber;
-      });
-      const selectionCredits = formatCreditAmountFromHalfUnits(
-        getSelectionCreditHalfUnits(sortedSelection)
-      );
-      const items = sortedSelection
-        .map((action) => {
-          const displayNumber = displayNumberMap.get(String(action.id)) || action.id;
-          const axes = getAxesForAction(action);
-          const axesLabel = axes.length
-            ? ` (axe${axes.length > 1 ? "s" : ""} ${axes.join(", ")}, tag ${action.tag})`
-            : ` (tag ${action.tag})`;
-          return `<li><strong>${displayNumber}.</strong> ${action.title}${axesLabel}</li>`;
-        })
-        .join("");
-      return `<li><strong>Lot ${index + 1}</strong> (${selectionCredits} credits)<ol>${items}</ol></li>`;
+  const referenceSelection = perfectScoreAnalysis.sampleSelections[0] || [];
+  const sortedReferenceSelection = [...referenceSelection].sort((left, right) => {
+    const leftNumber = displayNumberMap.get(String(left.id)) || left.id;
+    const rightNumber = displayNumberMap.get(String(right.id)) || right.id;
+    return leftNumber - rightNumber;
+  });
+  const referenceItems = sortedReferenceSelection
+    .map((action) => {
+      const displayNumber = displayNumberMap.get(String(action.id)) || action.id;
+      const axes = getAxesForAction(action);
+      const axesLabel = axes.length
+        ? ` (axe${axes.length > 1 ? "s" : ""} ${axes.join(", ")}, tag ${action.tag})`
+        : ` (tag ${action.tag})`;
+      return `<li><strong>${displayNumber}.</strong> ${action.title}${axesLabel}</li>`;
     })
     .join("");
+
+  let completionMarkup = "<li><strong>A selectionner maintenant</strong> : impossible</li>";
+
+  if (completion.status === "already-perfect") {
+    completionMarkup =
+      "<li><strong>A selectionner maintenant</strong> : rien, la selection actuelle atteint deja 10/10.</li>";
+  } else if (completion.status === "ok") {
+    const sortedCompletionSelection = [...completion.selection].sort((left, right) => {
+      const leftNumber = displayNumberMap.get(String(left.id)) || left.id;
+      const rightNumber = displayNumberMap.get(String(right.id)) || right.id;
+      return leftNumber - rightNumber;
+    });
+    const completionItems = sortedCompletionSelection
+      .map((action) => {
+        const displayNumber = displayNumberMap.get(String(action.id)) || action.id;
+        const axes = getAxesForAction(action);
+        const axesLabel = axes.length
+          ? ` (axe${axes.length > 1 ? "s" : ""} ${axes.join(", ")}, tag ${action.tag})`
+          : ` (tag ${action.tag})`;
+        return `<li><strong>${displayNumber}.</strong> ${action.title}${axesLabel}</li>`;
+      })
+      .join("");
+    const completionCredits = formatCreditAmountFromHalfUnits(
+      getSelectionCreditHalfUnits(sortedCompletionSelection)
+    );
+    completionMarkup =
+      `<li><strong>A selectionner maintenant</strong> (${completionCredits} credits)<ol>${completionItems}</ol></li>`;
+  }
+
+  listEl.innerHTML =
+    `<li><strong>Lot de reference</strong> (${formatCreditAmountFromHalfUnits(
+      getSelectionCreditHalfUnits(sortedReferenceSelection)
+    )} credits)<ol>${referenceItems}</ol></li>` +
+    completionMarkup;
 }
 
 function schedulePerfectScoreAnalysis() {
@@ -1449,6 +1748,7 @@ function renderModeUI(nextMode) {
   const canvas = document.getElementById("chart");
   const pdfBtn = document.getElementById("pdfBtn");
   const criteriaBox = document.getElementById("criteriaBox");
+  const selectionBudgetLabel = document.getElementById("selectionBudgetLabel");
 
   const modeCopy = {
     1: {
@@ -1533,6 +1833,12 @@ function renderModeUI(nextMode) {
       ? "Maître de partie"
       : "Mode joueur";
   }
+
+  if (selectionBudgetLabel) {
+    selectionBudgetLabel.textContent = nextMode === 1 ? "Actions" : "Crédits";
+  }
+
+  document.body.classList.toggle("round-one-mode", nextMode === 1);
 }
 
 function updatePermissionUI() {
@@ -1722,10 +2028,11 @@ function renderScoreBlock(state) {
   const selectedCreditHalfUnits = getSelectionCreditHalfUnits(selectedActions);
   const selectedCredits = halfUnitsToCredit(selectedCreditHalfUnits);
   const budgetCredits = halfUnitsToCredit(creditBudgetHalfUnits);
-  const revealScore =
-    state.mode === 2 ||
-    state.mode === 3 ||
-    (creditBudgetHalfUnits > 0 && selectedCreditHalfUnits >= creditBudgetHalfUnits);
+  const isRoundOne = isRoundOneMode(state);
+  const selectionTarget = isRoundOne
+    ? ROUND_ONE_SELECTION_SIZE
+    : creditBudgetHalfUnits;
+  const revealScore = shouldRevealScore(state, selectedCount);
   const ratio = score / 10;
 
   const scoreEl = document.getElementById("score");
@@ -1735,6 +2042,7 @@ function renderScoreBlock(state) {
     ? actionProgressFill.parentElement
     : null;
   const countEl = document.getElementById("count");
+  const selectionBudgetLabel = document.getElementById("selectionBudgetLabel");
   const summary = document.getElementById("summaryText");
 
   if (scoreEl) {
@@ -1754,26 +2062,39 @@ function renderScoreBlock(state) {
 
   if (actionProgressFill) {
     const actionRatio =
-      creditBudgetHalfUnits > 0
-        ? Math.min(selectedCreditHalfUnits, creditBudgetHalfUnits) / creditBudgetHalfUnits
+      selectionTarget > 0
+        ? (isRoundOne
+            ? Math.min(selectedCount, selectionTarget) / selectionTarget
+            : Math.min(selectedCreditHalfUnits, selectionTarget) / selectionTarget)
         : 0;
     actionProgressFill.style.width = `${actionRatio * 100}%`;
     if (actionProgress) {
       actionProgress.classList.toggle(
         "action-progress--full",
-        creditBudgetHalfUnits > 0 && selectedCreditHalfUnits >= creditBudgetHalfUnits
+        selectionTarget > 0 &&
+          (isRoundOne
+            ? selectedCount >= selectionTarget
+            : selectedCreditHalfUnits >= selectionTarget)
       );
     }
   }
 
+  if (selectionBudgetLabel) {
+    selectionBudgetLabel.textContent = isRoundOne ? "Actions" : "Crédits";
+  }
+
   if (countEl) {
-    countEl.textContent = formatCreditAmount(selectedCredits);
+    countEl.textContent = isRoundOne
+      ? String(selectedCount)
+      : formatCreditAmount(selectedCredits);
   }
 
   const countBudgetEl = document.getElementById("countBudget");
   if (countBudgetEl) {
-    countBudgetEl.textContent = creditBudgetHalfUnits > 0
-      ? formatCreditAmount(budgetCredits)
+    countBudgetEl.textContent = selectionTarget > 0
+      ? (isRoundOne
+          ? String(ROUND_ONE_SELECTION_SIZE)
+          : formatCreditAmount(budgetCredits))
       : "...";
   }
 
@@ -2031,6 +2352,7 @@ async function requestSelectionToggle(actionId) {
   }
 
   let blockedByBudget = false;
+  let blockedByActionLimit = false;
 
   try {
     await roomRef.transaction((current) => {
@@ -2044,11 +2366,21 @@ async function requestSelectionToggle(actionId) {
         const currentCreditHalfUnits = getSelectionCreditHalfUnits(
           getSelectedActionsFromState(next)
         );
+        const currentSelectionCount = getSelectedActionsFromState(next).length;
         const nextCreditHalfUnits =
           currentCreditHalfUnits +
           creditToHalfUnits(targetAction?.creditNormalized || 0);
 
-        if (creditBudgetHalfUnits > 0 && nextCreditHalfUnits > creditBudgetHalfUnits) {
+        if (next.mode === 1 && currentSelectionCount >= ROUND_ONE_SELECTION_SIZE) {
+          blockedByActionLimit = true;
+          return;
+        }
+
+        if (
+          next.mode !== 1 &&
+          creditBudgetHalfUnits > 0 &&
+          nextCreditHalfUnits > creditBudgetHalfUnits
+        ) {
           blockedByBudget = true;
           return;
         }
@@ -2071,6 +2403,8 @@ async function requestSelectionToggle(actionId) {
           creditBudgetHalfUnits
         )}).`
       );
+    } else if (blockedByActionLimit) {
+      showMessage(`Limite atteinte (${ROUND_ONE_SELECTION_SIZE} actions).`);
     }
   } catch (error) {
     console.error(error);

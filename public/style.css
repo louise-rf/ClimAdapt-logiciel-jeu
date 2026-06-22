@@ -424,6 +424,10 @@
     line-height: 1;
   }
 
+  body.round-one-mode .action-card__credit-meter {
+    display: none;
+  }
+
   .action-card__title {
     font-weight: 600;
     color: var(--text_color);
