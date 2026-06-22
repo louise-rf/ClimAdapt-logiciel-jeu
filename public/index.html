@@ -5,12 +5,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Jeu Adaptation</title>
-  <link rel="stylesheet" href="style.css?v=20260617-2" />
+  <link rel="stylesheet" href="style.css?v=20260622-1" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js" defer></script>
-  <script src="script.js?v=20260617-2" defer></script>
+  <script src="script.js?v=20260622-1" defer></script>
 </head>
 
 <body data-actions-csv="actions_selection.csv?v=20260612-1">
@@ -204,9 +204,15 @@
           </ol>
         </div>
 
-        <div class="card chart-card">
+        <div class="chart-card-host" id="chartCardHost">
+          <div class="card chart-card" id="chartCard">
+            <div class="chart-card__header">
           <h3>Évolution du score</h3>
 
+              <button type="button" class="chart-pin-btn hidden" id="chartPinToggle" aria-pressed="false">
+                Ã‰pingler
+              </button>
+            </div>
           <canvas id="chart" class="chart-canvas"></canvas>
 
           <div id="finalAnalysis" class="final-analysis hidden">
@@ -246,6 +252,7 @@
               </div>
             </div>
           </div>
+        </div>
         </div>
 
         <div class="card risk-card">

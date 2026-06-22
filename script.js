@@ -111,6 +111,8 @@ const PERFECT_ALL_CATEGORY_MASK = (1 << RESOURCE_CATEGORY_ORDER.length) - 1;
 let perfectScoreAnalysis = null;
 let perfectScoreAnalysisToken = 0;
 let creditBudgetHalfUnits = 0;
+let chartCardPinned = false;
+const CHART_PIN_STORAGE_KEY = "climadapt-chart-pinned";
 
 function normalizeTextKey(value) {
   return (value || "")
@@ -1839,6 +1841,74 @@ function renderModeUI(nextMode) {
   }
 
   document.body.classList.toggle("round-one-mode", nextMode === 1);
+  syncChartPinUI(nextMode);
+}
+
+function getChartCardElements() {
+  return {
+    chartCard: document.getElementById("chartCard"),
+    chartCardHost: document.getElementById("chartCardHost"),
+    chartPinToggle: document.getElementById("chartPinToggle"),
+  };
+}
+
+function applyChartPinnedState(nextMode) {
+  const { chartCard, chartCardHost, chartPinToggle } = getChartCardElements();
+  if (!chartCard || !chartCardHost) {
+    return;
+  }
+
+  const canPin = nextMode === 2 || nextMode === 3;
+  const shouldPin = canPin && chartCardPinned;
+
+  chartCard.classList.toggle("chart-card--pinned", shouldPin);
+  document.body.classList.toggle("chart-card-pinned", shouldPin);
+
+  if (chartPinToggle) {
+    chartPinToggle.classList.toggle("hidden", !canPin);
+    chartPinToggle.textContent = shouldPin ? "Desepingler" : "Epingler";
+    chartPinToggle.setAttribute("aria-pressed", shouldPin ? "true" : "false");
+  }
+
+  if (chart) {
+    window.requestAnimationFrame(() => {
+      if (chart) {
+        chart.resize();
+      }
+    });
+  }
+}
+
+function syncChartPinUI(nextMode = mode) {
+  if (nextMode !== 2 && nextMode !== 3 && chartCardPinned) {
+    chartCardPinned = false;
+    try {
+      window.localStorage.setItem(CHART_PIN_STORAGE_KEY, "0");
+    } catch (error) {
+      console.warn("Impossible de sauvegarder l'etat d'epinglage.", error);
+    }
+  }
+
+  applyChartPinnedState(nextMode);
+}
+
+function toggleChartPin() {
+  if (mode !== 2 && mode !== 3) {
+    return;
+  }
+
+  chartCardPinned = !chartCardPinned;
+
+  try {
+    window.localStorage.setItem(
+      CHART_PIN_STORAGE_KEY,
+      chartCardPinned ? "1" : "0"
+    );
+  } catch (error) {
+    console.warn("Impossible de sauvegarder l'etat d'epinglage.", error);
+  }
+
+  syncChartPinUI(mode);
 }
 
 function updatePermissionUI() {
@@ -2023,7 +2093,8 @@ function renderSelectionState(state) {
 function renderScoreBlock(state) {
   const selectedActions = getSelectedActionsFromState(state);
   const metrics = computeMetricsFromSelection(selectedActions);
-  const score = metrics.score;
+  const persistedScore = Number(state?.score);
+  const score = Number.isFinite(persistedScore) ? persistedScore : metrics.score;
   const selectedCount = selectedActions.length;
   const selectedCreditHalfUnits = getSelectionCreditHalfUnits(selectedActions);
   const selectedCredits = halfUnitsToCredit(selectedCreditHalfUnits);
@@ -2032,7 +2103,9 @@ function renderScoreBlock(state) {
   const selectionTarget = isRoundOne
     ? ROUND_ONE_SELECTION_SIZE
     : creditBudgetHalfUnits;
-  const revealScore = shouldRevealScore(state, selectedCount);
+  const revealScore =
+    shouldRevealScore(state, selectedCount) ||
+    (isCurrentUserMaster() && (Number(state?.mode) === 2 || Number(state?.mode) === 3));
   const ratio = score / 10;
 
   const scoreEl = document.getElementById("score");
@@ -3043,6 +3116,14 @@ function exportPDFCustom() {
 }
 
 exportPDF = exportPDFEnhanced;
+
+try {
+  chartCardPinned = window.localStorage.getItem(CHART_PIN_STORAGE_KEY) === "1";
+} catch (error) {
+  chartCardPinned = false;
+}
+
+document.getElementById("chartPinToggle")?.addEventListener("click", toggleChartPin);
 
 window.setMode = setMode;
 window.startWorkshop = startWorkshop;
