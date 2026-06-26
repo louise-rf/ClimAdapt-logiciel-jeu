@@ -19,6 +19,7 @@ let masterClaimAttempted = false;
 let selectedRoomNumber = null;
 let actionsCsvSnapshot = "";
 let actionsCsvPollHandle = null;
+let lastModeRulesShown = 0;
 
 const actionsCsvPath =
   document.body?.dataset.actionsCsv || "actions_selection.csv";
@@ -40,6 +41,38 @@ const ACCESS_CODES = {
 };
 const MIN_ROOM_NUMBER = 1;
 const MAX_ROOM_NUMBER = 99;
+const MODE_RULES_COPY = {
+  1: {
+    eyebrow: "Manche 1",
+    title: "Découverte des actions",
+    intro: "Cette manche sert à explorer le catalogue et à construire une première sélection.",
+    rules: [
+      "Sélectionnez jusqu'à 3 actions d'adaptation par catégorie de ressources.",
+      "Parcourez la catégorie qui vous a été atttribuée et utilisez les cartes pour lire les exemples.",
+      "Le score détaillé n'est pas encore révélé pendant cette phase.",
+    ],
+  },
+  2: {
+    eyebrow: "Manche 2",
+    title: "Élaborer une stratégie",
+    intro: "Cette manche demande de composer une stratégie d'adaptation plus robuste.",
+    rules: [
+      "Construisez une sélection en respectant le budget de crédits affiché.",
+      "Le score devient visible pour aider à comparer vos choix.",
+      "L'objectif est de vous rapprocher au maximum d'une stratégie 10/10.",
+    ],
+  },
+  3: {
+    eyebrow: "Manche 3",
+    title: "Amélioration continue",
+    intro: "Cette dernière manche sert à analyser et affiner la stratégie finale.",
+    rules: [
+      "Ajustez la sélection finale en respectant le budget affiché.",
+      "Consultez l'analyse finale pour repérer les axes à renforcer.",
+      "Les résultats peuvent être exporter en PDF à la fin de la manche.",
+    ],
+  },
+};
 
 function getFirebaseAppName(role) {
   return role === "master"
@@ -349,6 +382,52 @@ function setRoomGateError(text) {
   if (roomGateError) {
     roomGateError.textContent = text || "";
   }
+}
+
+function closeModeRulesModal() {
+  const modal = document.getElementById("modeRulesModal");
+  if (!modal) {
+    return;
+  }
+
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+}
+
+function openModeRulesModal(nextMode) {
+  const copy = MODE_RULES_COPY[nextMode];
+  const modal = document.getElementById("modeRulesModal");
+  const eyebrow = document.getElementById("modeRulesEyebrow");
+  const title = document.getElementById("modeRulesTitle");
+  const intro = document.getElementById("modeRulesIntro");
+  const list = document.getElementById("modeRulesList");
+
+  if (!copy || !modal || !eyebrow || !title || !intro || !list) {
+    return;
+  }
+
+  eyebrow.textContent = copy.eyebrow;
+  title.textContent = copy.title;
+  intro.textContent = copy.intro;
+  list.innerHTML = copy.rules.map((rule) => `<li>${rule}</li>`).join("");
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+}
+
+function maybeShowModeRules(nextMode) {
+  if (!MODE_RULES_COPY[nextMode]) {
+    closeModeRulesModal();
+    return;
+  }
+
+  if (lastModeRulesShown === nextMode) {
+    return;
+  }
+
+  lastModeRulesShown = nextMode;
+  openModeRulesModal(nextMode);
 }
 
 function isRoomConsentAccepted() {
@@ -1859,6 +1938,7 @@ function renderModeUI(nextMode) {
 
   document.body.classList.toggle("round-one-mode", nextMode === 1);
   syncChartPinUI(nextMode);
+  maybeShowModeRules(nextMode);
 }
 
 function getChartCardElements() {
@@ -2871,6 +2951,7 @@ function applyInitialVisibility() {
   document.getElementById("grid")?.classList.add("hidden");
   document.getElementById("mainHeader")?.classList.add("hidden");
   document.querySelector(".sidebar")?.classList.add("hidden");
+  closeModeRulesModal();
 }
 
 function initRoleGate() {
@@ -2883,6 +2964,8 @@ function initRoleGate() {
   const submit = document.getElementById("roleCodeSubmit");
   const backButton = document.getElementById("roleGateBack");
   const consentCheckbox = document.getElementById("roomConsentCheckbox");
+  const modeRulesClose = document.getElementById("modeRulesClose");
+  const modeRulesBackdrop = document.getElementById("modeRulesBackdrop");
 
   showRoomGateStep();
 
@@ -2926,6 +3009,15 @@ function initRoleGate() {
     if (consentCheckbox.checked) {
       setRoomGateError("");
       setRoleGateError("");
+    }
+  });
+
+  modeRulesClose?.addEventListener("click", closeModeRulesModal);
+  modeRulesBackdrop?.addEventListener("click", closeModeRulesModal);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeModeRulesModal();
     }
   });
 

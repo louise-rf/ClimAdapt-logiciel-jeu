@@ -5,12 +5,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Jeu Adaptation</title>
-  <link rel="stylesheet" href="style.css?v=20260626-1" />
+  <link rel="stylesheet" href="style.css?v=20260626-2" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js" defer></script>
-  <script src="script.js?v=20260626-1" defer></script>
+  <script src="script.js?v=20260626-2" defer></script>
 </head>
 
 <body data-actions-csv="actions_selection.csv?v=20260612-1">
@@ -76,6 +76,19 @@
   </div>
 
   <div id="appShell" class="app-shell hidden">
+    <div class="mode-rules-modal hidden" id="modeRulesModal" aria-hidden="true">
+      <div class="mode-rules-modal__backdrop" id="modeRulesBackdrop"></div>
+      <div class="mode-rules-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="modeRulesTitle">
+        <button class="mode-rules-modal__close" id="modeRulesClose" type="button" aria-label="Fermer">
+          ×
+        </button>
+        <p class="mode-rules-modal__eyebrow" id="modeRulesEyebrow">Manche</p>
+        <h3 class="mode-rules-modal__title" id="modeRulesTitle">Règles</h3>
+        <p class="mode-rules-modal__intro" id="modeRulesIntro"></p>
+        <ul class="mode-rules-modal__list" id="modeRulesList"></ul>
+      </div>
+    </div>
+
     <div class="sidebar">
       <div class="sidebar__title">Atelier ClimAdapt</div>
       <div class="sidebar__subtitle">Progression</div>

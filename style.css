@@ -134,6 +134,10 @@
     overflow-x: hidden;
   }
 
+  body.modal-open {
+    overflow: hidden;
+  }
+
   h1,
   h2,
   h3,
@@ -251,6 +255,79 @@
     display: block;
     object-fit: contain;
     margin-left: auto;
+  }
+
+  .mode-rules-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }
+
+  .mode-rules-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 21, 17, 0.42);
+    backdrop-filter: blur(6px);
+  }
+
+  .mode-rules-modal__dialog {
+    position: relative;
+    width: min(100%, 620px);
+    padding: 1.4rem 1.4rem 1.25rem;
+    border: 1px solid var(--border_color);
+    border-radius: 16px;
+    background: var(--surface_color);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18);
+    z-index: 1;
+  }
+
+  .mode-rules-modal__close {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 1px solid var(--border_color);
+    border-radius: 999px;
+    background: var(--surface_soft_color);
+    color: var(--text_color);
+    cursor: pointer;
+    font-size: 1.25rem;
+    line-height: 1;
+  }
+
+  .mode-rules-modal__eyebrow {
+    margin: 0 0 0.35rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .mode-rules-modal__title {
+    margin: 0 0 0.65rem;
+    padding-right: 2.5rem;
+  }
+
+  .mode-rules-modal__intro {
+    margin: 0 0 0.8rem;
+    font-size: 1rem;
+  }
+
+  .mode-rules-modal__list {
+    margin: 0;
+    padding-left: 1.2rem;
+  }
+
+  .mode-rules-modal__list li + li {
+    margin-top: 0.45rem;
   }
   .mode-filter-shell {
     margin-left: 0;
@@ -1431,6 +1508,14 @@
     .site-footer {
       width: 100%;
       padding-inline: 1rem;
+    }
+
+    .mode-rules-modal {
+      padding: 1rem;
+    }
+
+    .mode-rules-modal__dialog {
+      padding: 1.2rem 1rem 1rem;
     }
   }
 }
