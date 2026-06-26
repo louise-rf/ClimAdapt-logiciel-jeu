@@ -5,12 +5,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Jeu Adaptation</title>
-  <link rel="stylesheet" href="style.css?v=20260622-1" />
+  <link rel="stylesheet" href="style.css?v=20260626-1" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js" defer></script>
-  <script src="script.js?v=20260622-1" defer></script>
+  <script src="script.js?v=20260626-1" defer></script>
 </head>
 
 <body data-actions-csv="actions_selection.csv?v=20260612-1">
@@ -31,6 +31,13 @@
             maxlength="2"
             placeholder="01"
           />
+
+          <div class="role-gate__consent" id="roomConsentBox">
+            <label class="role-gate__checkbox-label" for="roomConsentCheckbox">
+              <input id="roomConsentCheckbox" class="role-gate__checkbox" type="checkbox" />
+              <span>J’accepte de ne pas copier, diffuser, enregistrer ou réutiliser les contenus de l’atelier ClimAdapt sans autorisation.</span>
+            </label>
+          </div>
 
           <button class="role-gate__button" type="submit">
             Continuer
@@ -277,6 +284,10 @@
 
       <div class="grid" id="grid"></div>
     </div>
+
+    <footer class="site-footer">
+      <p>© 2026 Akteo – Tous droits réservés</p>
+    </footer>
   </div>
 </body>
 

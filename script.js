@@ -351,6 +351,10 @@ function setRoomGateError(text) {
   }
 }
 
+function isRoomConsentAccepted() {
+  return Boolean(document.getElementById("roomConsentCheckbox")?.checked);
+}
+
 function showRoomGateStep() {
   document.getElementById("roomGateStep")?.classList.remove("hidden");
   document.getElementById("roleGateStep")?.classList.add("hidden");
@@ -447,6 +451,12 @@ async function bootstrapApp(role) {
 }
 
 function handleRoomNumberSubmit() {
+  if (!isRoomConsentAccepted()) {
+    setRoomGateError("Vous devez accepter cette condition pour continuer.");
+    document.getElementById("roomConsentCheckbox")?.focus();
+    return;
+  }
+
   const input = document.getElementById("roomNumberInput");
   const roomNumber = parseRoomNumber(input?.value);
 
@@ -470,6 +480,13 @@ function handleRoomNumberSubmit() {
 }
 
 function handleRoleCodeSubmit() {
+  if (!isRoomConsentAccepted()) {
+    setRoleGateError("Vous devez accepter cette condition pour rejoindre la room.");
+    showRoomGateStep();
+    document.getElementById("roomConsentCheckbox")?.focus();
+    return;
+  }
+
   const input = document.getElementById("roleCodeInput");
   const rawCode = (input?.value || "").trim();
   const normalizedCode = rawCode.replace(/\s+/g, "");
@@ -2865,6 +2882,7 @@ function initRoleGate() {
   const input = document.getElementById("roleCodeInput");
   const submit = document.getElementById("roleCodeSubmit");
   const backButton = document.getElementById("roleGateBack");
+  const consentCheckbox = document.getElementById("roomConsentCheckbox");
 
   showRoomGateStep();
 
@@ -2902,6 +2920,13 @@ function initRoleGate() {
     setRoleGateError("");
     showRoomGateStep();
     roomInput?.focus();
+  });
+
+  consentCheckbox?.addEventListener("change", () => {
+    if (consentCheckbox.checked) {
+      setRoomGateError("");
+      setRoleGateError("");
+    }
   });
 
   roomInput?.focus();

@@ -1209,6 +1209,33 @@
     margin-inline: auto;
   }
 
+  .role-gate__consent {
+    margin: 1rem 0 1.1rem;
+    padding: 0.95rem 1rem;
+    border: 1px solid var(--border_color);
+    border-radius: 16px;
+    background: var(--surface_soft_color);
+  }
+
+  .role-gate__checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    font-size: 0.92rem;
+    line-height: 1.45;
+    color: var(--text_color);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .role-gate__checkbox {
+    margin: 0.15rem 0 0;
+    inline-size: 1rem;
+    block-size: 1rem;
+    accent-color: #5ba85b;
+    flex: 0 0 auto;
+  }
+
   .role-gate__label {
     display: block;
     margin-bottom: 0.35rem;
@@ -1256,6 +1283,19 @@
     color: #b53f2f;
     font-size: 0.92rem;
     text-align: center;
+  }
+
+  .site-footer {
+    width: min(calc(100% - (var(--container_gutter) * 2)), var(--container_width));
+    margin: 2rem auto 0;
+    padding: 0 0 1.5rem;
+    text-align: center;
+  }
+
+  .site-footer p {
+    margin: 0;
+    color: var(--footer_text_color);
+    font-size: var(--footer_font_size);
   }
 
   .ok {
@@ -1386,6 +1426,11 @@
     .chart-card--pinned {
       right: 0.75rem;
       width: min(380px, calc(100vw - var(--sidebar-width) - 1.5rem));
+    }
+
+    .site-footer {
+      width: 100%;
+      padding-inline: 1rem;
     }
   }
 }
