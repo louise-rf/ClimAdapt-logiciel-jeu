@@ -1,6 +1,9 @@
 {
   "hosting": {
     "public": "public",
+    "predeploy": [
+      "python build_action_catalogs.py public"
+    ],
     "ignore": [
       "firebase.json",
       "**/.*",
@@ -8,7 +11,16 @@
     ],
     "headers": [
       {
-        "source": "actions_selection.csv",
+        "source": "**/*.csv",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store, max-age=0"
+          }
+        ]
+      },
+      {
+        "source": "action-catalogs.json",
         "headers": [
           {
             "key": "Cache-Control",

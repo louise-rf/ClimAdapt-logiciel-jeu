@@ -5,8 +5,8 @@
     "path": "actions_selection.csv"
   },
   {
-    "id": "compiegne-total",
-    "label": "Exemple Compiègne - Total",
-    "path": "fiches actions - catalogues types/Exemple Compiègne - Total.csv"
+    "id": "exemple-compiegne",
+    "label": "Exemple Compiègne",
+    "path": "fiches actions - catalogues types/Exemple Compiègne.csv"
   }
 ]
