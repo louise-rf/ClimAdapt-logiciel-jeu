@@ -20,9 +20,12 @@ let selectedRoomNumber = null;
 let actionsCsvSnapshot = "";
 let actionsCsvPollHandle = null;
 let lastModeRulesShown = 0;
+let roomDeletionHandled = false;
+let roomDeletionPending = false;
 
 const actionsCsvPath =
   document.body?.dataset.actionsCsv || "actions_selection.csv";
+const ROOM_DELETION_NOTICE_STORAGE_KEY = "climadapt-room-deletion-notice";
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyCgd2Z6NQS8risX-5W8F-hmcCRTxs-vYaM",
@@ -497,6 +500,101 @@ function setRoomGateError(text) {
   }
 }
 
+function consumeRoomDeletionNotice() {
+  try {
+    const notice = window.sessionStorage.getItem(ROOM_DELETION_NOTICE_STORAGE_KEY);
+    if (notice) {
+      window.sessionStorage.removeItem(ROOM_DELETION_NOTICE_STORAGE_KEY);
+    }
+    return notice || "";
+  } catch (error) {
+    console.warn("Impossible de lire le message de suppression de room.", error);
+    return "";
+  }
+}
+
+function resetToInitialRoomGate(message) {
+  if (roomRef) {
+    roomRef.off();
+  }
+
+  roomState = null;
+  roomReady = false;
+  roomInitialized = false;
+  roomSubscribed = false;
+  roomRef = null;
+  sessionRole = null;
+  selectedRoomNumber = null;
+  currentUser = null;
+  isMaster = false;
+  appBootstrapped = false;
+  masterClaimAttempted = false;
+  roomDeletionPending = false;
+  mode = 0;
+  history = [0];
+  lastModeRulesShown = 0;
+
+  closeModeRulesModal();
+  applyInitialVisibility();
+  hideAppShell();
+  showRoleGate();
+  showRoomGateStep();
+  document.body.classList.add("role-gate-open");
+  document.body.classList.remove("app-open");
+
+  setRoomBadge(null);
+  setRoleBadge("Joueur");
+  setRoomGateError(message || "");
+  setRoleGateError("");
+  setMasterRiskSetupError("");
+  showMessage("");
+
+  const roomInput = document.getElementById("roomNumberInput");
+  const roleInput = document.getElementById("roleCodeInput");
+  const roleSubmit = document.getElementById("roleCodeSubmit");
+  const consentCheckbox = document.getElementById("roomConsentCheckbox");
+  const selectedRoomLabel = document.getElementById("selectedRoomLabel");
+
+  if (roomInput) {
+    roomInput.value = "";
+  }
+
+  if (roleInput) {
+    roleInput.value = "";
+    roleInput.disabled = false;
+  }
+
+  if (roleSubmit) {
+    roleSubmit.disabled = false;
+  }
+
+  if (consentCheckbox) {
+    consentCheckbox.checked = false;
+  }
+
+  if (selectedRoomLabel) {
+    selectedRoomLabel.textContent = "Room -";
+  }
+
+  getMasterRiskSelectElements().forEach((select) => {
+    if (select) {
+      select.value = "";
+    }
+  });
+  renderMasterRiskSelectOptions();
+
+  roomInput?.focus();
+}
+
+function redirectToInitialRoomScreen(message) {
+  if (roomDeletionHandled) {
+    return;
+  }
+
+  roomDeletionHandled = true;
+  resetToInitialRoomGate(message);
+}
+
 function closeModeRulesModal() {
   const modal = document.getElementById("modeRulesModal");
   if (!modal) {
@@ -590,6 +688,9 @@ function hideAppShell() {
 }
 
 async function bootstrapApp(role) {
+  roomDeletionHandled = false;
+  roomDeletionPending = false;
+
   if (appBootstrapped) {
     return;
   }
@@ -2684,6 +2785,15 @@ function ensureRoomSubscription() {
 
   roomSubscribed = true;
   roomRef.on("value", (snapshot) => {
+    if (!snapshot.exists()) {
+      if (roomDeletionPending) {
+        return;
+      }
+
+      redirectToInitialRoomScreen("La room a ete reinitialisee.");
+      return;
+    }
+
     roomState = normalizeRoomState(snapshot.val());
     roomReady = true;
     isMaster = isCurrentUserMaster();
@@ -2848,18 +2958,11 @@ async function requestReset() {
   }
 
   try {
-    await roomRef.transaction((current) => {
-      const next = normalizeRoomState(current);
-      next.mode = 0;
-      next.selectedIds = {};
-      next.topRisks = [];
-      next.history = [0];
-      next.score = 0;
-      next.resetVersion = (Number(next.resetVersion) || 0) + 1;
-      next.updatedAt = Date.now();
-      return next;
-    });
+    roomDeletionPending = true;
+    await roomRef.remove();
+    redirectToInitialRoomScreen("La room a ete reinitialisee.");
   } catch (error) {
+    roomDeletionPending = false;
     console.error(error);
     showMessage("Impossible de réinitialiser la partie.");
   }
@@ -3195,6 +3298,7 @@ function applyInitialVisibility() {
 }
 
 function initRoleGate() {
+  const roomDeletionNotice = consumeRoomDeletionNotice();
   showRoleGate();
 
   const roomForm = document.getElementById("roomGateForm");
@@ -3210,6 +3314,8 @@ function initRoleGate() {
   const masterRiskSelects = getMasterRiskSelectElements();
 
   showRoomGateStep();
+  setRoomGateError(roomDeletionNotice);
+  setRoleGateError("");
 
   roomForm?.addEventListener("submit", (event) => {
     event.preventDefault();
