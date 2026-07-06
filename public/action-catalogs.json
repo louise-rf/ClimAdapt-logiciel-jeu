@@ -1,0 +1,12 @@
+[
+  {
+    "id": "default",
+    "label": "Catalogue principal",
+    "path": "actions_selection.csv"
+  },
+  {
+    "id": "compiegne-total",
+    "label": "Exemple Compiègne - Total",
+    "path": "fiches actions - catalogues types/Exemple Compiègne - Total.csv"
+  }
+]

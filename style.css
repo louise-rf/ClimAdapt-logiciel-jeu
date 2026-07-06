@@ -1247,6 +1247,10 @@
     text-align: left;
   }
 
+  .risk-setup__field--wide {
+    grid-column: 1 / -1;
+  }
+
   .risk-setup__select {
     appearance: none;
     background-color: var(--surface_color);

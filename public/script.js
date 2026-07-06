@@ -22,9 +22,21 @@ let actionsCsvPollHandle = null;
 let lastModeRulesShown = 0;
 let roomDeletionHandled = false;
 let roomDeletionPending = false;
+let masterRiskSetupDirty = false;
+let availableActionCatalogs = [];
+let activeActionsCsvPath = "";
+let actionsLoadToken = 0;
 
-const actionsCsvPath =
+const DEFAULT_ACTIONS_CSV_PATH =
   document.body?.dataset.actionsCsv || "actions_selection.csv";
+const ACTION_CATALOGS_MANIFEST_PATH = "action-catalogs.json";
+const DEFAULT_ACTION_CATALOGS = Object.freeze([
+  {
+    id: "default",
+    label: "Catalogue principal",
+    path: DEFAULT_ACTIONS_CSV_PATH,
+  },
+]);
 const ROOM_DELETION_NOTICE_STORAGE_KEY = "climadapt-room-deletion-notice";
 
 const FIREBASE_CONFIG = {
@@ -141,6 +153,7 @@ const DEFAULT_ROOM_STATE = {
   masterUid: null,
   mode: 0,
   resetVersion: 0,
+  actionsCatalogPath: DEFAULT_ACTIONS_CSV_PATH,
   selectedIds: {},
   topRisks: [],
   history: [0],
@@ -410,6 +423,96 @@ function getDisplayedTopRisks(state) {
     : [...DEFAULT_TOP_RISKS];
 }
 
+function normalizeCatalogPathKey(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .split("#")[0]
+    .split("?")[0];
+}
+
+function formatActionCatalogLabel(path) {
+  const filename = String(path || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop();
+  return (filename || "Catalogue").replace(/\.csv$/i, "");
+}
+
+function getAvailableActionCatalogs() {
+  return availableActionCatalogs.length
+    ? availableActionCatalogs
+    : [...DEFAULT_ACTION_CATALOGS];
+}
+
+function setAvailableActionCatalogs(entries) {
+  const uniqueCatalogs = new Map();
+
+  [...DEFAULT_ACTION_CATALOGS, ...(Array.isArray(entries) ? entries : [])].forEach(
+    (entry, index) => {
+      const path = String(entry?.path || "").trim();
+      if (!path || !/\.csv(?:[?#].*)?$/i.test(path)) {
+        return;
+      }
+
+      const key = normalizeCatalogPathKey(path);
+      if (!key || uniqueCatalogs.has(key)) {
+        return;
+      }
+
+      const label = String(entry?.label || "").trim() || formatActionCatalogLabel(path);
+      const id = String(entry?.id || `catalog-${index + 1}`).trim() || `catalog-${index + 1}`;
+
+      uniqueCatalogs.set(key, { id, label, path });
+    }
+  );
+
+  availableActionCatalogs = Array.from(uniqueCatalogs.values());
+  activeActionsCsvPath = sanitizeActionsCatalogPath(activeActionsCsvPath);
+}
+
+function findActionCatalogByPath(path) {
+  const normalizedPath = normalizeCatalogPathKey(path);
+  if (!normalizedPath) {
+    return null;
+  }
+
+  return (
+    getAvailableActionCatalogs().find(
+      (entry) => normalizeCatalogPathKey(entry.path) === normalizedPath
+    ) || null
+  );
+}
+
+function sanitizeActionsCatalogPath(path) {
+  return (
+    findActionCatalogByPath(path)?.path ||
+    DEFAULT_ACTION_CATALOGS[0]?.path ||
+    DEFAULT_ACTIONS_CSV_PATH
+  );
+}
+
+function getRoomActionsCatalogPath(state) {
+  return sanitizeActionsCatalogPath(state?.actionsCatalogPath);
+}
+
+async function loadActionCatalogOptions() {
+  try {
+    const url = new URL(ACTION_CATALOGS_MANIFEST_PATH, window.location.href);
+    url.searchParams.set("_ts", String(Date.now()));
+    const response = await fetch(url, { cache: "no-store" });
+    const entries = await response.json();
+    setAvailableActionCatalogs(entries);
+  } catch (error) {
+    console.warn("Impossible de charger la liste des catalogues d'actions.", error);
+    setAvailableActionCatalogs([]);
+  }
+
+  renderMasterActionCatalogOptions(getRoomActionsCatalogPath(roomState || DEFAULT_ROOM_STATE));
+}
+
 function setMasterRiskSetupError(text) {
   const masterRiskSetupError = document.getElementById("masterRiskSetupError");
   if (masterRiskSetupError) {
@@ -426,6 +529,16 @@ function getMasterRiskSelectElements() {
 function getMasterRiskSelectValues() {
   return getMasterRiskSelectElements().map((select) =>
     String(select?.value || "").trim()
+  );
+}
+
+function getMasterActionCatalogSelectElement() {
+  return document.getElementById("masterActionCatalogSelect");
+}
+
+function getMasterActionCatalogValue() {
+  return sanitizeActionsCatalogPath(
+    String(getMasterActionCatalogSelectElement()?.value || "").trim()
   );
 }
 
@@ -461,6 +574,30 @@ function renderMasterRiskSelectOptions(selectedValues = []) {
     select.appendChild(fragment);
     select.value = currentValue;
   });
+}
+
+function renderMasterActionCatalogOptions(selectedPath = DEFAULT_ACTIONS_CSV_PATH) {
+  const select = getMasterActionCatalogSelectElement();
+  if (!select) {
+    return;
+  }
+
+  const currentPath = sanitizeActionsCatalogPath(selectedPath);
+  const fragment = document.createDocumentFragment();
+
+  getAvailableActionCatalogs().forEach((catalog) => {
+    const option = document.createElement("option");
+
+    option.value = catalog.path;
+    option.textContent = catalog.label;
+    option.selected =
+      normalizeCatalogPathKey(catalog.path) === normalizeCatalogPathKey(currentPath);
+    fragment.appendChild(option);
+  });
+
+  select.innerHTML = "";
+  select.appendChild(fragment);
+  select.value = currentPath;
 }
 
 function setRoleBadge(text) {
@@ -530,6 +667,7 @@ function resetToInitialRoomGate(message) {
   appBootstrapped = false;
   masterClaimAttempted = false;
   roomDeletionPending = false;
+  masterRiskSetupDirty = false;
   mode = 0;
   history = [0];
   lastModeRulesShown = 0;
@@ -582,6 +720,7 @@ function resetToInitialRoomGate(message) {
     }
   });
   renderMasterRiskSelectOptions();
+  renderMasterActionCatalogOptions(DEFAULT_ACTIONS_CSV_PATH);
 
   roomInput?.focus();
 }
@@ -717,8 +856,9 @@ async function bootstrapApp(role) {
   }
 
   try {
+    await loadActionCatalogOptions();
     initFirebase();
-    await loadActionsFromCSV();
+    await loadActionsFromCSV(getRoomActionsCatalogPath(DEFAULT_ROOM_STATE));
     startActionsCsvPolling();
     showAppShell();
     hideRoleGate();
@@ -830,6 +970,7 @@ function normalizeRoomState(value) {
     next.history = [0];
   }
 
+  next.actionsCatalogPath = getRoomActionsCatalogPath(next);
   next.topRisks = sanitizeTopRisks(next.topRisks);
   next.mode = Number(next.mode) || 0;
   next.resetVersion = Number(next.resetVersion) || 0;
@@ -2022,17 +2163,20 @@ function renderMasterRiskSetup(state) {
     !hasConfiguredTopRisks(state);
 
   if (!shouldShowSetup) {
+    masterRiskSetupDirty = false;
     setMasterRiskSetupError("");
     return;
   }
 
-  const currentValues = getMasterRiskSelectValues();
-  const hasLocalSelection = currentValues.some((value) => value);
-  const selectedValues = hasLocalSelection
-    ? currentValues
+  const selectedValues = masterRiskSetupDirty
+    ? getMasterRiskSelectValues()
     : sanitizeTopRisks(state?.topRisks);
+  const selectedCatalogPath = masterRiskSetupDirty
+    ? getMasterActionCatalogValue()
+    : getRoomActionsCatalogPath(state);
 
   renderMasterRiskSelectOptions(selectedValues);
+  renderMasterActionCatalogOptions(selectedCatalogPath);
 }
 
 function initChart(initialHistory = [0]) {
@@ -2642,11 +2786,23 @@ function refreshActionsFromCsvText(csvText) {
   }
 }
 
-async function loadActionsFromCSV() {
-  const response = await fetch(new URL(actionsCsvPath, window.location.href), {
-    cache: "no-store",
-  });
+async function loadActionsFromCSV(nextPath = activeActionsCsvPath || DEFAULT_ACTIONS_CSV_PATH) {
+  const catalogPath = sanitizeActionsCatalogPath(nextPath);
+  const requestToken = ++actionsLoadToken;
+  const url = new URL(catalogPath, window.location.href);
+
+  url.searchParams.set("_ts", String(Date.now()));
+  const response = await fetch(url, { cache: "no-store" });
   const csvText = await response.text();
+  if (/<!doctype html/i.test(csvText)) {
+    throw new Error(`Catalogue invalide: ${catalogPath}`);
+  }
+
+  if (requestToken !== actionsLoadToken) {
+    return;
+  }
+
+  activeActionsCsvPath = catalogPath;
   actionsCsvSnapshot = csvText;
 
   refreshActionsFromCsvText(csvText);
@@ -2661,12 +2817,12 @@ function startActionsCsvPolling() {
 
   actionsCsvPollHandle = window.setInterval(async () => {
     try {
-      const url = new URL(actionsCsvPath, window.location.href);
+      const url = new URL(activeActionsCsvPath || DEFAULT_ACTIONS_CSV_PATH, window.location.href);
       url.searchParams.set("_ts", String(Date.now()));
       const response = await fetch(url, { cache: "no-store" });
       const csvText = await response.text();
 
-      if (!csvText || csvText === actionsCsvSnapshot) {
+      if (!csvText || /<!doctype html/i.test(csvText) || csvText === actionsCsvSnapshot) {
         return;
       }
 
@@ -2797,6 +2953,21 @@ function ensureRoomSubscription() {
     roomState = normalizeRoomState(snapshot.val());
     roomReady = true;
     isMaster = isCurrentUserMaster();
+    const nextCatalogPath = getRoomActionsCatalogPath(roomState);
+    const catalogChanged =
+      normalizeCatalogPathKey(nextCatalogPath) !==
+      normalizeCatalogPathKey(activeActionsCsvPath);
+
+    if (catalogChanged) {
+      actionsReady = false;
+      loadActionsFromCSV(nextCatalogPath).catch((error) => {
+        console.error(error);
+        actionsReady = true;
+        maybeRender();
+        showMessage("Impossible de charger le catalogue de fiches actions.");
+      });
+    }
+
     maybeRender();
   });
 }
@@ -2830,6 +3001,13 @@ async function handleMasterRiskSetupSubmit() {
     return;
   }
 
+  const selectedCatalogPath = getMasterActionCatalogValue();
+  if (!selectedCatalogPath) {
+    setMasterRiskSetupError("Choisissez un catalogue de fiches actions.");
+    getMasterActionCatalogSelectElement()?.focus();
+    return;
+  }
+
   const submitButton = document.getElementById("masterRiskSetupSubmit");
   if (submitButton) {
     submitButton.disabled = true;
@@ -2840,13 +3018,27 @@ async function handleMasterRiskSetupSubmit() {
   try {
     const result = await roomRef.transaction((current) => {
       const next = normalizeRoomState(current);
+      const previousCatalogPath = getRoomActionsCatalogPath(next);
+      const catalogChanged =
+        normalizeCatalogPathKey(previousCatalogPath) !==
+        normalizeCatalogPathKey(selectedCatalogPath);
+
       next.topRisks = topRisks;
+      next.actionsCatalogPath = selectedCatalogPath;
+      if (catalogChanged) {
+        next.selectedIds = {};
+        next.history = [0];
+        next.score = 0;
+        next.resetVersion = (Number(next.resetVersion) || 0) + 1;
+      }
       next.updatedAt = Date.now();
       return next;
     });
 
     if (!result.committed) {
       setMasterRiskSetupError("Impossible d'enregistrer ce top 3.");
+    } else {
+      masterRiskSetupDirty = false;
     }
   } catch (error) {
     console.error(error);
@@ -3312,6 +3504,7 @@ function initRoleGate() {
   const modeRulesBackdrop = document.getElementById("modeRulesBackdrop");
   const masterRiskSetupForm = document.getElementById("masterRiskSetupForm");
   const masterRiskSelects = getMasterRiskSelectElements();
+  const masterActionCatalogSelect = getMasterActionCatalogSelectElement();
 
   showRoomGateStep();
   setRoomGateError(roomDeletionNotice);
@@ -3367,9 +3560,15 @@ function initRoleGate() {
 
   masterRiskSelects.forEach((select) => {
     select?.addEventListener("change", () => {
+      masterRiskSetupDirty = true;
       renderMasterRiskSelectOptions(getMasterRiskSelectValues());
       setMasterRiskSetupError("");
     });
+  });
+
+  masterActionCatalogSelect?.addEventListener("change", () => {
+    masterRiskSetupDirty = true;
+    setMasterRiskSetupError("");
   });
 
   modeRulesClose?.addEventListener("click", closeModeRulesModal);
@@ -3382,6 +3581,7 @@ function initRoleGate() {
   });
 
   renderMasterRiskSelectOptions();
+  renderMasterActionCatalogOptions(DEFAULT_ACTIONS_CSV_PATH);
   roomInput?.focus();
 }
 
