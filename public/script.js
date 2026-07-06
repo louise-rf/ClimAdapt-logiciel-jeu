@@ -41,6 +41,30 @@ const ACCESS_CODES = {
 };
 const MIN_ROOM_NUMBER = 1;
 const MAX_ROOM_NUMBER = 99;
+const CLIMATE_RISK_OPTIONS = Object.freeze([
+  "Chaleur extrême",
+  "Feux de forêt",
+  "Fortes pluies",
+  "Inondation",
+  "Modif T air",
+  "Mouvements de terrain",
+  "RGA",
+  "Stress Hydrique",
+  "Submersion marine",
+  "Tempêtes",
+  "Vague de chaleur",
+  "Vague de gel",
+]);
+const DEFAULT_TOP_RISKS = Object.freeze([
+  "Inondation",
+  "Vague de chaleur",
+  "RGA",
+]);
+const RISK_IMPACT_COPY = Object.freeze({
+  Inondation: "Impacts : degats materiels et humains, evacuations possibles",
+  "Vague de chaleur": "Impacts : sante des personnes fragiles, biodiversite",
+  RGA: "Impacts : batis",
+});
 const MODE_RULES_COPY = {
   1: {
     eyebrow: "Manche 1",
@@ -115,6 +139,7 @@ const DEFAULT_ROOM_STATE = {
   mode: 0,
   resetVersion: 0,
   selectedIds: {},
+  topRisks: [],
   history: [0],
   score: 0,
   updatedAt: 0,
@@ -345,6 +370,94 @@ function showMessage(message) {
   if (msg) {
     msg.textContent = message || "";
   }
+}
+
+function sanitizeTopRisks(value) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+    ? Object.keys(value)
+        .sort((left, right) => Number(left) - Number(right))
+        .map((key) => value[key])
+    : [];
+  const seen = new Set();
+
+  return rawValues
+    .map((risk) => String(risk || "").trim())
+    .filter((risk) => CLIMATE_RISK_OPTIONS.includes(risk))
+    .filter((risk) => {
+      if (seen.has(risk)) {
+        return false;
+      }
+
+      seen.add(risk);
+      return true;
+    })
+    .slice(0, 3);
+}
+
+function hasConfiguredTopRisks(state) {
+  return sanitizeTopRisks(state?.topRisks).length === 3;
+}
+
+function getDisplayedTopRisks(state) {
+  const selectedTopRisks = sanitizeTopRisks(state?.topRisks);
+  return selectedTopRisks.length === 3
+    ? selectedTopRisks
+    : [...DEFAULT_TOP_RISKS];
+}
+
+function setMasterRiskSetupError(text) {
+  const masterRiskSetupError = document.getElementById("masterRiskSetupError");
+  if (masterRiskSetupError) {
+    masterRiskSetupError.textContent = text || "";
+  }
+}
+
+function getMasterRiskSelectElements() {
+  return [1, 2, 3].map((index) =>
+    document.getElementById(`masterRiskSelect${index}`)
+  );
+}
+
+function getMasterRiskSelectValues() {
+  return getMasterRiskSelectElements().map((select) =>
+    String(select?.value || "").trim()
+  );
+}
+
+function renderMasterRiskSelectOptions(selectedValues = []) {
+  const selects = getMasterRiskSelectElements();
+  if (selects.some((select) => !select)) {
+    return;
+  }
+
+  selects.forEach((select, index) => {
+    const currentValue = selectedValues[index] || "";
+    const blockedValues = new Set(
+      selectedValues.filter((value, valueIndex) => value && valueIndex !== index)
+    );
+    const fragment = document.createDocumentFragment();
+    const placeholder = document.createElement("option");
+
+    placeholder.value = "";
+    placeholder.textContent = "...";
+    fragment.appendChild(placeholder);
+
+    CLIMATE_RISK_OPTIONS.forEach((risk) => {
+      const option = document.createElement("option");
+
+      option.value = risk;
+      option.textContent = risk;
+      option.disabled = blockedValues.has(risk);
+      option.selected = risk === currentValue;
+      fragment.appendChild(option);
+    });
+
+    select.innerHTML = "";
+    select.appendChild(fragment);
+    select.value = currentValue;
+  });
 }
 
 function setRoleBadge(text) {
@@ -616,6 +729,7 @@ function normalizeRoomState(value) {
     next.history = [0];
   }
 
+  next.topRisks = sanitizeTopRisks(next.topRisks);
   next.mode = Number(next.mode) || 0;
   next.resetVersion = Number(next.resetVersion) || 0;
   next.score = Number(next.score) || 0;
@@ -1782,6 +1896,44 @@ function updateFinalAnalysis(criteria) {
   if (axis4Fill) axis4Fill.style.width = `${axis4}%`;
 }
 
+function renderTopRisks(state) {
+  const topRisks = getDisplayedTopRisks(state);
+
+  topRisks.forEach((risk, index) => {
+    const labelEl = document.getElementById(`riskLabel${index + 1}`);
+    const impactEl = document.getElementById(`riskImpact${index + 1}`);
+
+    if (labelEl) {
+      labelEl.textContent = risk;
+    }
+
+    if (impactEl) {
+      impactEl.textContent = "";
+      impactEl.classList.add("hidden");
+    }
+  });
+}
+
+function renderMasterRiskSetup(state) {
+  const shouldShowSetup =
+    Number(state?.mode) === 0 &&
+    isCurrentUserMaster() &&
+    !hasConfiguredTopRisks(state);
+
+  if (!shouldShowSetup) {
+    setMasterRiskSetupError("");
+    return;
+  }
+
+  const currentValues = getMasterRiskSelectValues();
+  const hasLocalSelection = currentValues.some((value) => value);
+  const selectedValues = hasLocalSelection
+    ? currentValues
+    : sanitizeTopRisks(state?.topRisks);
+
+  renderMasterRiskSelectOptions(selectedValues);
+}
+
 function initChart(initialHistory = [0]) {
   const ctx = document.getElementById("chart");
   if (!ctx) {
@@ -1832,7 +1984,14 @@ function syncChartFromState(state) {
 }
 
 function renderModeUI(nextMode) {
+  const showMasterRiskSetup =
+    nextMode === 0 &&
+    isCurrentUserMaster() &&
+    !hasConfiguredTopRisks(roomState);
   const homeScreen = document.getElementById("homeScreen");
+  const masterRiskSetupScreen = document.getElementById(
+    "masterRiskSetupScreen"
+  );
   const dashboard = document.getElementById("dashboard");
   const sidebar = document.querySelector(".sidebar");
   const gridEl = document.getElementById("grid");
@@ -1863,7 +2022,15 @@ function renderModeUI(nextMode) {
     },
   };
 
-  if (homeScreen) homeScreen.classList.toggle("hidden", nextMode !== 0);
+  if (homeScreen) {
+    homeScreen.classList.toggle("hidden", nextMode !== 0 || showMasterRiskSetup);
+  }
+  if (masterRiskSetupScreen) {
+    masterRiskSetupScreen.classList.toggle(
+      "hidden",
+      nextMode !== 0 || !showMasterRiskSetup
+    );
+  }
   if (dashboard) dashboard.classList.toggle("hidden", nextMode === 0);
   if (sidebar) sidebar.classList.toggle("hidden", nextMode === 0);
   if (gridEl) gridEl.classList.toggle("hidden", nextMode === 0);
@@ -1923,7 +2090,10 @@ function renderModeUI(nextMode) {
   const homeMeta = document.querySelector(".home-screen__meta");
   if (startButton) {
     startButton.textContent = "Commencer l'atelier";
-    startButton.style.display = isCurrentUserMaster() && nextMode === 0 ? "" : "none";
+    startButton.style.display =
+      isCurrentUserMaster() && nextMode === 0 && !showMasterRiskSetup
+        ? ""
+        : "none";
   }
 
   if (homeMeta) {
@@ -2014,6 +2184,7 @@ function updatePermissionUI() {
   const resetBtn = document.querySelector(".reset-btn");
   const startBtn = document.querySelector(".home-screen__cta");
   const roleIsMaster = isCurrentUserMaster();
+  const hasTopRisks = hasConfiguredTopRisks(roomState);
 
   if (modeBox) {
     modeBox.style.display = roleIsMaster ? "flex" : "none";
@@ -2036,11 +2207,13 @@ function updatePermissionUI() {
   }
 
   if (startBtn) {
-    startBtn.disabled = !roleIsMaster;
-    startBtn.title = roleIsMaster
+    startBtn.disabled = !roleIsMaster || !hasTopRisks;
+    startBtn.title = !roleIsMaster
+      ? "Réservé au maître de partie"
+      : hasTopRisks
       ? ""
-      : "Réservé au maître de partie";
-    startBtn.style.display = roleIsMaster && mode === 0 ? "" : "none";
+      : "Choisissez d'abord 3 risques climatiques.";
+    startBtn.style.display = roleIsMaster && mode === 0 && hasTopRisks ? "" : "none";
   }
 
   const roleBadge = document.getElementById("roleBadge");
@@ -2294,6 +2467,8 @@ function renderRoomState() {
     : [0];
 
   renderModeUI(mode);
+  renderTopRisks(roomState);
+  renderMasterRiskSetup(roomState);
   renderSelectionState(roomState);
   renderScoreBlock(roomState);
   updatePermissionUI();
@@ -2516,6 +2691,63 @@ function ensureRoomSubscription() {
   });
 }
 
+async function handleMasterRiskSetupSubmit() {
+  if (!roomRef || !isCurrentUserMaster()) {
+    setMasterRiskSetupError("Reserve au maitre de partie.");
+    return;
+  }
+
+  const selects = getMasterRiskSelectElements();
+  if (selects.some((select) => !select)) {
+    return;
+  }
+
+  const selectedValues = getMasterRiskSelectValues();
+  const firstMissingSelect = selects.find(
+    (select) => !String(select.value || "").trim()
+  );
+
+  if (firstMissingSelect) {
+    setMasterRiskSetupError("Choisissez 3 aleas climatiques.");
+    firstMissingSelect.focus();
+    return;
+  }
+
+  const topRisks = sanitizeTopRisks(selectedValues);
+  if (topRisks.length !== 3 || topRisks.length !== selectedValues.length) {
+    setMasterRiskSetupError("Choisissez 3 aleas differents.");
+    renderMasterRiskSelectOptions(selectedValues);
+    return;
+  }
+
+  const submitButton = document.getElementById("masterRiskSetupSubmit");
+  if (submitButton) {
+    submitButton.disabled = true;
+  }
+
+  setMasterRiskSetupError("");
+
+  try {
+    const result = await roomRef.transaction((current) => {
+      const next = normalizeRoomState(current);
+      next.topRisks = topRisks;
+      next.updatedAt = Date.now();
+      return next;
+    });
+
+    if (!result.committed) {
+      setMasterRiskSetupError("Impossible d'enregistrer ce top 3.");
+    }
+  } catch (error) {
+    console.error(error);
+    setMasterRiskSetupError("Impossible d'enregistrer ce top 3.");
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+    }
+  }
+}
+
 async function requestSelectionToggle(actionId) {
   if (!roomRef) {
     return;
@@ -2620,6 +2852,7 @@ async function requestReset() {
       const next = normalizeRoomState(current);
       next.mode = 0;
       next.selectedIds = {};
+      next.topRisks = [];
       next.history = [0];
       next.score = 0;
       next.resetVersion = (Number(next.resetVersion) || 0) + 1;
@@ -2651,6 +2884,13 @@ function resetGame() {
 function startWorkshop() {
   if (!isCurrentUserMaster()) {
     showMessage("Réservé au maître de partie.");
+    return;
+  }
+
+  if (!hasConfiguredTopRisks(roomState)) {
+    setMasterRiskSetupError("Choisissez d'abord vos 3 risques climatiques.");
+    renderMasterRiskSetup(roomState || DEFAULT_ROOM_STATE);
+    document.getElementById("masterRiskSelect1")?.focus();
     return;
   }
 
@@ -2966,6 +3206,8 @@ function initRoleGate() {
   const consentCheckbox = document.getElementById("roomConsentCheckbox");
   const modeRulesClose = document.getElementById("modeRulesClose");
   const modeRulesBackdrop = document.getElementById("modeRulesBackdrop");
+  const masterRiskSetupForm = document.getElementById("masterRiskSetupForm");
+  const masterRiskSelects = getMasterRiskSelectElements();
 
   showRoomGateStep();
 
@@ -3012,6 +3254,18 @@ function initRoleGate() {
     }
   });
 
+  masterRiskSetupForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    handleMasterRiskSetupSubmit();
+  });
+
+  masterRiskSelects.forEach((select) => {
+    select?.addEventListener("change", () => {
+      renderMasterRiskSelectOptions(getMasterRiskSelectValues());
+      setMasterRiskSetupError("");
+    });
+  });
+
   modeRulesClose?.addEventListener("click", closeModeRulesModal);
   modeRulesBackdrop?.addEventListener("click", closeModeRulesModal);
 
@@ -3021,6 +3275,7 @@ function initRoleGate() {
     }
   });
 
+  renderMasterRiskSelectOptions();
   roomInput?.focus();
 }
 

@@ -177,6 +177,52 @@
       <select class="mode-banner__filter-select" id="categoryFilter"></select>
     </div>
 
+    <section id="masterRiskSetupScreen" class="home-screen hidden">
+      <div class="home-screen__content home-screen__content--setup">
+        <div class="home-screen__text home-screen__text--setup">
+          <h1 class="home-screen__title">
+            Definissez le <span class="home-screen__title-highlight">top 3</span><br> des risques climatiques
+          </h1>
+
+          <p class="home-screen__subtitle">
+            Choisissez les 3 aléas climatiques prioritaires de votre atelier. Ce top 3 sera repris automatiquement dans la partie
+            <strong>Top 3 de vos risques climatiques</strong> pendant les manches 2 et 3.
+          </p>
+
+          <form class="role-gate__form risk-setup-form" id="masterRiskSetupForm">
+            <div class="risk-setup__grid">
+              <div class="risk-setup__field">
+                <label class="role-gate__label" for="masterRiskSelect1">Risque 1</label>
+                <select id="masterRiskSelect1" class="role-gate__input risk-setup__select">
+                  <option value="">...</option>
+                </select>
+              </div>
+
+              <div class="risk-setup__field">
+                <label class="role-gate__label" for="masterRiskSelect2">Risque 2</label>
+                <select id="masterRiskSelect2" class="role-gate__input risk-setup__select">
+                  <option value="">...</option>
+                </select>
+              </div>
+
+              <div class="risk-setup__field">
+                <label class="role-gate__label" for="masterRiskSelect3">Risque 3</label>
+                <select id="masterRiskSelect3" class="role-gate__input risk-setup__select">
+                  <option value="">...</option>
+                </select>
+              </div>
+            </div>
+
+            <button class="role-gate__button risk-setup__submit" id="masterRiskSetupSubmit" type="submit">
+              Continuer
+            </button>
+
+            <p class="role-gate__error risk-setup__error" id="masterRiskSetupError" aria-live="polite"></p>
+          </form>
+        </div>
+      </div>
+    </section>
+
     <section id="homeScreen" class="home-screen">
       <div class="home-screen__content">
         <div class="home-screen__text">
@@ -278,19 +324,21 @@
         <div class="card risk-card">
           <h3>Top 3 de vos risques climatiques</h3>
 
-          <div class="risk gold">
-            🥇 <strong>Inondation</strong>
-            <p class="risk-impact">Impacts : dégâts matériels et humains, évacuations possibles</p>
-          </div>
+          <div class="risk-podium">
+            <div class="risk silver">
+              <strong id="riskLabel2">Vague de chaleur</strong>
+              <p class="risk-impact hidden" id="riskImpact2"></p>
+            </div>
 
-          <div class="risk silver">
-            🥈 <strong>Vague de chaleur</strong>
-            <p class="risk-impact">Impacts : santé des personnes fragiles, biodiversité</p>
-          </div>
+            <div class="risk gold">
+              <strong id="riskLabel1">Inondation</strong>
+              <p class="risk-impact hidden" id="riskImpact1"></p>
+            </div>
 
-          <div class="risk bronze">
-            🥉 <strong>Retrait Gonflement des Argiles️</strong>
-            <p class="risk-impact">Impacts : bâtis</p>
+            <div class="risk bronze">
+              <strong id="riskLabel3">RGA</strong>
+              <p class="risk-impact hidden" id="riskImpact3"></p>
+            </div>
           </div>
         </div>
       </div>
