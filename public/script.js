@@ -186,6 +186,8 @@ let perfectScoreAnalysis = null;
 let perfectScoreAnalysisToken = 0;
 let creditBudgetHalfUnits = 0;
 let chartCardPinned = false;
+let victoryModalVisible = false;
+let victoryReachedDuringCurrentStreak = false;
 const CHART_PIN_STORAGE_KEY = "climadapt-chart-pinned";
 
 function normalizeTextKey(value) {
@@ -671,7 +673,9 @@ function resetToInitialRoomGate(message) {
   mode = 0;
   history = [0];
   lastModeRulesShown = 0;
+  victoryReachedDuringCurrentStreak = false;
 
+  closeVictoryModal();
   closeModeRulesModal();
   applyInitialVisibility();
   hideAppShell();
@@ -743,6 +747,51 @@ function closeModeRulesModal() {
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
   document.body.classList.remove("modal-open");
+}
+
+function openVictoryModal() {
+  const modal = document.getElementById("victoryModal");
+  if (!modal) {
+    return;
+  }
+
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  victoryModalVisible = true;
+}
+
+function closeVictoryModal() {
+  const modal = document.getElementById("victoryModal");
+  if (!modal) {
+    return;
+  }
+
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  victoryModalVisible = false;
+
+  if (document.getElementById("modeRulesModal")?.classList.contains("hidden")) {
+    document.body.classList.remove("modal-open");
+  }
+}
+
+function updateVictoryModalState(state) {
+  const isWinningState =
+    Number(state?.mode) === 3 && Number(state?.score) === 10;
+
+  if (isWinningState && !victoryReachedDuringCurrentStreak) {
+    victoryReachedDuringCurrentStreak = true;
+    openVictoryModal();
+    return;
+  }
+
+  if (!isWinningState) {
+    victoryReachedDuringCurrentStreak = false;
+    if (victoryModalVisible) {
+      closeVictoryModal();
+    }
+  }
 }
 
 function openModeRulesModal(nextMode) {
@@ -2716,6 +2765,7 @@ function renderRoomState() {
   renderMasterRiskSetup(roomState);
   renderSelectionState(roomState);
   renderScoreBlock(roomState);
+  updateVictoryModalState(roomState);
   updatePermissionUI();
   showMessage("");
 }
@@ -3502,6 +3552,7 @@ function initRoleGate() {
   const consentCheckbox = document.getElementById("roomConsentCheckbox");
   const modeRulesClose = document.getElementById("modeRulesClose");
   const modeRulesBackdrop = document.getElementById("modeRulesBackdrop");
+  const victoryModalClose = document.getElementById("victoryModalClose");
   const masterRiskSetupForm = document.getElementById("masterRiskSetupForm");
   const masterRiskSelects = getMasterRiskSelectElements();
   const masterActionCatalogSelect = getMasterActionCatalogSelectElement();
@@ -3573,10 +3624,12 @@ function initRoleGate() {
 
   modeRulesClose?.addEventListener("click", closeModeRulesModal);
   modeRulesBackdrop?.addEventListener("click", closeModeRulesModal);
+  victoryModalClose?.addEventListener("click", closeVictoryModal);
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeModeRulesModal();
+      closeVictoryModal();
     }
   });
 

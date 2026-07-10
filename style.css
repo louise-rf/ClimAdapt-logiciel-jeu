@@ -329,6 +329,179 @@
   .mode-rules-modal__list li + li {
     margin-top: 0.45rem;
   }
+
+  .victory-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }
+
+  .victory-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 21, 17, 0.5);
+    backdrop-filter: blur(6px);
+  }
+
+  .victory-modal__dialog {
+    position: relative;
+    width: min(100%, 640px);
+    padding: 2.2rem 1.6rem 1.8rem;
+    border: 1px solid rgba(15, 21, 17, 0.12);
+    border-radius: 18px;
+    background: linear-gradient(180deg, #ffffff 0%, #f5fbf2 100%);
+    box-shadow: 0 28px 60px rgba(0, 0, 0, 0.22);
+    text-align: center;
+    overflow: hidden;
+    z-index: 1;
+  }
+
+  .victory-modal__close {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 1px solid var(--border_color);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.94);
+    color: var(--text_color);
+    cursor: pointer;
+    font-size: 1.25rem;
+    line-height: 1;
+    z-index: 2;
+  }
+
+  .victory-modal__eyebrow {
+    position: relative;
+    z-index: 1;
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #2d7a38;
+  }
+
+  .victory-modal__title {
+    position: relative;
+    z-index: 1;
+    margin: 0 auto;
+    max-width: 26ch;
+    font-size: clamp(1.7rem, 3vw, 2.4rem);
+    line-height: 1.15;
+    color: var(--text_color);
+  }
+
+  .victory-modal__confetti {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .victory-modal__confetti-piece {
+    position: absolute;
+    top: -12%;
+    width: 10px;
+    height: 22px;
+    border-radius: 999px;
+    opacity: 0.9;
+    animation: victory-confetti-fall 3.6s linear infinite;
+    transform: rotate(18deg);
+  }
+
+  .victory-modal__confetti-piece:nth-child(1) {
+    left: 6%;
+    background: #7c51a6;
+    animation-delay: 0s;
+  }
+
+  .victory-modal__confetti-piece:nth-child(2) {
+    left: 14%;
+    background: #99ff99;
+    animation-delay: 0.35s;
+  }
+
+  .victory-modal__confetti-piece:nth-child(3) {
+    left: 22%;
+    background: #f7c948;
+    animation-delay: 0.9s;
+  }
+
+  .victory-modal__confetti-piece:nth-child(4) {
+    left: 31%;
+    background: #ff7a59;
+    animation-delay: 0.2s;
+  }
+
+  .victory-modal__confetti-piece:nth-child(5) {
+    left: 40%;
+    background: #5bc0eb;
+    animation-delay: 1.1s;
+  }
+
+  .victory-modal__confetti-piece:nth-child(6) {
+    left: 48%;
+    background: #7c51a6;
+    animation-delay: 0.55s;
+  }
+
+  .victory-modal__confetti-piece:nth-child(7) {
+    left: 57%;
+    background: #99ff99;
+    animation-delay: 1.4s;
+  }
+
+  .victory-modal__confetti-piece:nth-child(8) {
+    left: 65%;
+    background: #f7c948;
+    animation-delay: 0.75s;
+  }
+
+  .victory-modal__confetti-piece:nth-child(9) {
+    left: 73%;
+    background: #ff7a59;
+    animation-delay: 1.8s;
+  }
+
+  .victory-modal__confetti-piece:nth-child(10) {
+    left: 81%;
+    background: #5bc0eb;
+    animation-delay: 0.5s;
+  }
+
+  .victory-modal__confetti-piece:nth-child(11) {
+    left: 89%;
+    background: #7c51a6;
+    animation-delay: 1.25s;
+  }
+
+  .victory-modal__confetti-piece:nth-child(12) {
+    left: 95%;
+    background: #99ff99;
+    animation-delay: 0.95s;
+  }
+
+  @keyframes victory-confetti-fall {
+    0% {
+      transform: translate3d(0, 0, 0) rotate(0deg);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.9;
+    }
+    100% {
+      transform: translate3d(-18px, 430px, 0) rotate(360deg);
+      opacity: 0;
+    }
+  }
+
   .mode-filter-shell {
     margin-left: 0;
     padding-left: 1.25rem;
@@ -1617,6 +1790,14 @@
 
     .mode-rules-modal__dialog {
       padding: 1.2rem 1rem 1rem;
+    }
+
+    .victory-modal {
+      padding: 1rem;
+    }
+
+    .victory-modal__dialog {
+      padding: 2rem 1.15rem 1.5rem;
     }
   }
 }
