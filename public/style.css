@@ -399,6 +399,39 @@
     color: var(--text_color);
   }
 
+  .victory-modal__download {
+    position: relative;
+    z-index: 1;
+    margin-top: 1.25rem;
+    min-width: min(100%, 18rem);
+    padding: 0.9rem 1.4rem;
+    border: 0;
+    border-radius: 12px;
+    background: #2d7a38;
+    color: #ffffff;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 14px 28px rgba(45, 122, 56, 0.26);
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+  }
+
+  .victory-modal__download:hover {
+    transform: translateY(-1px);
+    background: #25662f;
+    box-shadow: 0 18px 34px rgba(45, 122, 56, 0.32);
+  }
+
+  .victory-modal__download:active {
+    transform: translateY(0);
+    box-shadow: 0 10px 20px rgba(45, 122, 56, 0.24);
+  }
+
+  .victory-modal__download:focus-visible {
+    outline: 3px solid rgba(153, 255, 153, 0.8);
+    outline-offset: 2px;
+  }
+
   .victory-modal__confetti {
     position: absolute;
     inset: 0;

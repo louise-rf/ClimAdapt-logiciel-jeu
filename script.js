@@ -26,6 +26,7 @@ let masterRiskSetupDirty = false;
 let availableActionCatalogs = [];
 let activeActionsCsvPath = "";
 let actionsLoadToken = 0;
+let playerSessionProfile = null;
 
 const DEFAULT_ACTIONS_CSV_PATH =
   document.body?.dataset.actionsCsv || "actions_selection.csv";
@@ -38,6 +39,7 @@ const DEFAULT_ACTION_CATALOGS = Object.freeze([
   },
 ]);
 const ROOM_DELETION_NOTICE_STORAGE_KEY = "climadapt-room-deletion-notice";
+const PLAYER_SESSION_PROFILE_STORAGE_KEY = "climadapt-player-profile";
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyCgd2Z6NQS8risX-5W8F-hmcCRTxs-vYaM",
@@ -140,6 +142,91 @@ function parseRoomNumber(value) {
   }
 
   return roomNumber;
+}
+
+function getTodayDateString() {
+  const today = new Date();
+  const day = String(today.getDate()).padStart(2, "0");
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const year = String(today.getFullYear());
+  return `${day}/${month}/${year}`;
+}
+
+function normalizePlayerIdentityPart(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function readPlayerProfileInputs() {
+  return {
+    firstName: normalizePlayerIdentityPart(
+      document.getElementById("playerFirstNameInput")?.value
+    ),
+    lastName: normalizePlayerIdentityPart(
+      document.getElementById("playerLastNameInput")?.value
+    ),
+  };
+}
+
+function setPlayerProfileInputs(profile) {
+  const firstNameInput = document.getElementById("playerFirstNameInput");
+  const lastNameInput = document.getElementById("playerLastNameInput");
+
+  if (firstNameInput) {
+    firstNameInput.value = profile?.firstName || "";
+  }
+
+  if (lastNameInput) {
+    lastNameInput.value = profile?.lastName || "";
+  }
+}
+
+function savePlayerSessionProfile(profile) {
+  playerSessionProfile = profile;
+
+  try {
+    if (!profile) {
+      window.sessionStorage.removeItem(PLAYER_SESSION_PROFILE_STORAGE_KEY);
+      return;
+    }
+
+    window.sessionStorage.setItem(
+      PLAYER_SESSION_PROFILE_STORAGE_KEY,
+      JSON.stringify(profile)
+    );
+  } catch (error) {
+    console.warn("Impossible d'enregistrer le profil joueur.", error);
+  }
+}
+
+function loadPlayerSessionProfile() {
+  try {
+    const rawValue = window.sessionStorage.getItem(
+      PLAYER_SESSION_PROFILE_STORAGE_KEY
+    );
+
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawValue);
+    const firstName = normalizePlayerIdentityPart(parsed?.firstName);
+    const lastName = normalizePlayerIdentityPart(parsed?.lastName);
+    const date = String(parsed?.date || "").trim();
+
+    if (!firstName || !lastName || !date) {
+      return null;
+    }
+
+    return {
+      firstName,
+      lastName,
+      date,
+      roomNumber: parseRoomNumber(parsed?.roomNumber) || null,
+    };
+  } catch (error) {
+    console.warn("Impossible de relire le profil joueur.", error);
+    return null;
+  }
 }
 const RESOURCE_CATEGORY_ORDER = [
   "Ressources Techniques",
@@ -696,6 +783,8 @@ function resetToInitialRoomGate(message) {
   const roleSubmit = document.getElementById("roleCodeSubmit");
   const consentCheckbox = document.getElementById("roomConsentCheckbox");
   const selectedRoomLabel = document.getElementById("selectedRoomLabel");
+  const firstNameInput = document.getElementById("playerFirstNameInput");
+  const lastNameInput = document.getElementById("playerLastNameInput");
 
   if (roomInput) {
     roomInput.value = "";
@@ -717,6 +806,18 @@ function resetToInitialRoomGate(message) {
   if (selectedRoomLabel) {
     selectedRoomLabel.textContent = "Room -";
   }
+
+  if (firstNameInput) {
+    firstNameInput.value = "";
+    firstNameInput.disabled = false;
+  }
+
+  if (lastNameInput) {
+    lastNameInput.value = "";
+    lastNameInput.disabled = false;
+  }
+
+  savePlayerSessionProfile(null);
 
   getMasterRiskSelectElements().forEach((select) => {
     if (select) {
@@ -759,6 +860,96 @@ function openVictoryModal() {
   modal.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
   victoryModalVisible = true;
+}
+
+function getActivePlayerProfile() {
+  return playerSessionProfile || loadPlayerSessionProfile();
+}
+
+function buildDiplomaFileName(profile) {
+  const firstName = normalizePlayerIdentityPart(profile?.firstName).replace(/[^\p{L}\p{N}]+/gu, "-");
+  const lastName = normalizePlayerIdentityPart(profile?.lastName).replace(/[^\p{L}\p{N}]+/gu, "-");
+  const safeFirstName = firstName || "joueur";
+  const safeLastName = lastName || "";
+  return `Diplome-ClimAdapt-${safeFirstName}${safeLastName ? `-${safeLastName}` : ""}.pdf`;
+}
+
+async function downloadDiplomaPdf() {
+  const profile = getActivePlayerProfile();
+
+  if (!profile?.firstName || !profile?.lastName) {
+    showMessage("Nom et prénom du joueur introuvables pour personnaliser le diplôme.");
+    return;
+  }
+
+  if (!window.PDFLib) {
+    showMessage("La bibliothèque PDF n'est pas disponible.");
+    return;
+  }
+
+  try {
+    showMessage("Préparation du diplôme...");
+
+    const sourceUrl = new URL("images/Diplôme ClimAdapt.pdf", window.location.href);
+    const response = await fetch(sourceUrl.href, { cache: "no-store" });
+
+    if (!response.ok) {
+      throw new Error(`Impossible de charger le diplôme (${response.status}).`);
+    }
+
+    const pdfBytes = await response.arrayBuffer();
+    const pdfDoc = await window.PDFLib.PDFDocument.load(pdfBytes);
+    const page = pdfDoc.getPage(0);
+    const { width, height } = page.getSize();
+    const font = await pdfDoc.embedFont(window.PDFLib.StandardFonts.Helvetica);
+    const playerFullName = `${profile.firstName} ${profile.lastName}`;
+    const dateText = profile.date || getTodayDateString();
+    const [dateDay = "", dateMonth = "", dateYear = ""] = dateText.split("/");
+    const dateDigits = `${dateDay}${dateMonth}${dateYear}`.split("");
+    const nameFontSize = Math.max(36, Math.min(51, width * 0.057));
+    const dateFontSize = 26;
+    const nameTextWidth = font.widthOfTextAtSize(playerFullName, nameFontSize);
+    const nameTextY = height * 0.483;
+    const dateTextY = 45.42;
+    const dateDigitStartX = 1086.05;
+    const dateDigitAdvanceX = 15.08;
+
+    page.drawText(playerFullName, {
+      x: (width - nameTextWidth) / 2,
+      y: nameTextY,
+      size: nameFontSize,
+      font,
+      color: window.PDFLib.rgb(0, 0, 0),
+    });
+
+    dateDigits.forEach((digit, index) => {
+      const slashOffset = index >= 2 ? 11.91 : 0;
+      const secondSlashOffset = index >= 4 ? 11.9 : 0;
+      page.drawText(digit, {
+        x: dateDigitStartX + dateDigitAdvanceX * index + slashOffset + secondSlashOffset,
+        y: dateTextY,
+        size: dateFontSize,
+        font,
+        color: window.PDFLib.rgb(0, 0, 0),
+      });
+    });
+
+    const personalizedPdfBytes = await pdfDoc.save();
+    const blob = new Blob([personalizedPdfBytes], { type: "application/pdf" });
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = buildDiplomaFileName(profile);
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+    showMessage("");
+  } catch (error) {
+    console.error(error);
+    showMessage("Impossible de générer le diplôme personnalisé.");
+  }
 }
 
 function closeVictoryModal() {
@@ -895,6 +1086,8 @@ async function bootstrapApp(role) {
   setRoleGateError("Chargement en cours...");
   const submit = document.getElementById("roleCodeSubmit");
   const input = document.getElementById("roleCodeInput");
+  const firstNameInput = document.getElementById("playerFirstNameInput");
+  const lastNameInput = document.getElementById("playerLastNameInput");
 
   if (submit) {
     submit.disabled = true;
@@ -902,6 +1095,14 @@ async function bootstrapApp(role) {
 
   if (input) {
     input.disabled = true;
+  }
+
+  if (firstNameInput) {
+    firstNameInput.disabled = true;
+  }
+
+  if (lastNameInput) {
+    lastNameInput.disabled = true;
   }
 
   try {
@@ -928,6 +1129,14 @@ async function bootstrapApp(role) {
     if (input) {
       input.disabled = false;
       input.focus();
+    }
+
+    if (firstNameInput) {
+      firstNameInput.disabled = false;
+    }
+
+    if (lastNameInput) {
+      lastNameInput.disabled = false;
     }
   }
 }
@@ -978,6 +1187,25 @@ function handleRoleCodeSubmit() {
     setRoleGateError("Code invalide.");
     return;
   }
+
+  const { firstName, lastName } = readPlayerProfileInputs();
+
+  if (!firstName || !lastName) {
+    setRoleGateError("Saisissez le prenom et le nom du joueur.");
+    if (!firstName) {
+      document.getElementById("playerFirstNameInput")?.focus();
+    } else {
+      document.getElementById("playerLastNameInput")?.focus();
+    }
+    return;
+  }
+
+  savePlayerSessionProfile({
+    firstName,
+    lastName,
+    date: getTodayDateString(),
+    roomNumber: selectedRoomNumber,
+  });
 
   setRoleGateError("Accès autorisé. Chargement...");
   bootstrapApp(role).catch((error) => {
@@ -3541,6 +3769,7 @@ function applyInitialVisibility() {
 
 function initRoleGate() {
   const roomDeletionNotice = consumeRoomDeletionNotice();
+  const savedPlayerProfile = loadPlayerSessionProfile();
   showRoleGate();
 
   const roomForm = document.getElementById("roomGateForm");
@@ -3550,9 +3779,12 @@ function initRoleGate() {
   const submit = document.getElementById("roleCodeSubmit");
   const backButton = document.getElementById("roleGateBack");
   const consentCheckbox = document.getElementById("roomConsentCheckbox");
+  const firstNameInput = document.getElementById("playerFirstNameInput");
+  const lastNameInput = document.getElementById("playerLastNameInput");
   const modeRulesClose = document.getElementById("modeRulesClose");
   const modeRulesBackdrop = document.getElementById("modeRulesBackdrop");
   const victoryModalClose = document.getElementById("victoryModalClose");
+  const victoryModalDownload = document.getElementById("victoryModalDownload");
   const masterRiskSetupForm = document.getElementById("masterRiskSetupForm");
   const masterRiskSelects = getMasterRiskSelectElements();
   const masterActionCatalogSelect = getMasterActionCatalogSelectElement();
@@ -3560,6 +3792,12 @@ function initRoleGate() {
   showRoomGateStep();
   setRoomGateError(roomDeletionNotice);
   setRoleGateError("");
+  playerSessionProfile = savedPlayerProfile;
+  setPlayerProfileInputs(savedPlayerProfile);
+
+  if (savedPlayerProfile?.roomNumber && roomInput) {
+    roomInput.value = String(savedPlayerProfile.roomNumber).padStart(2, "0");
+  }
 
   roomForm?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -3588,6 +3826,14 @@ function initRoleGate() {
       event.preventDefault();
       handleRoleCodeSubmit();
     }
+  });
+
+  firstNameInput?.addEventListener("input", () => {
+    setRoleGateError("");
+  });
+
+  lastNameInput?.addEventListener("input", () => {
+    setRoleGateError("");
   });
 
   backButton?.addEventListener("click", (event) => {
@@ -3625,6 +3871,7 @@ function initRoleGate() {
   modeRulesClose?.addEventListener("click", closeModeRulesModal);
   modeRulesBackdrop?.addEventListener("click", closeModeRulesModal);
   victoryModalClose?.addEventListener("click", closeVictoryModal);
+  victoryModalDownload?.addEventListener("click", downloadDiplomaPdf);
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {

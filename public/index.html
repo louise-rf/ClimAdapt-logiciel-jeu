@@ -5,12 +5,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Jeu Adaptation</title>
-  <link rel="stylesheet" href="style.css?v=20260706-1" />
+  <link rel="stylesheet" href="style.css?v=20260716-4" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js" defer></script>
-  <script src="script.js?v=20260706-1" defer></script>
+  <script src="script.js?v=20260716-4" defer></script>
 </head>
 
 <body data-actions-csv="actions_selection.csv?v=20260612-1">
@@ -60,6 +61,26 @@
             autocomplete="off"
             maxlength="4"
             placeholder="****"
+          />
+
+          <label class="role-gate__label" for="playerFirstNameInput">Prenom</label>
+          <input
+            id="playerFirstNameInput"
+            class="role-gate__input"
+            type="text"
+            autocomplete="given-name"
+            maxlength="60"
+            placeholder="Prenom du joueur"
+          />
+
+          <label class="role-gate__label" for="playerLastNameInput">Nom</label>
+          <input
+            id="playerLastNameInput"
+            class="role-gate__input"
+            type="text"
+            autocomplete="family-name"
+            maxlength="60"
+            placeholder="Nom du joueur"
           />
 
           <button class="role-gate__button" id="roleCodeSubmit" type="submit">
@@ -112,6 +133,9 @@
         <h3 class="victory-modal__title" id="victoryModalTitle">
           Bravo !! Vous avez construit une stratégie d'adaptation 10/10 !
         </h3>
+        <button class="victory-modal__download" id="victoryModalDownload" type="button">
+          Téléchargez votre diplôme !
+        </button>
       </div>
     </div>
 
