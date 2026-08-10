@@ -236,12 +236,15 @@ const RESOURCE_CATEGORY_ORDER = [
   "Ressources Humaines",
 ];
 
+const OTHER_RESOURCE_CATEGORY = "Autre";
+
 const DEFAULT_ROOM_STATE = {
   masterUid: null,
   mode: 0,
   resetVersion: 0,
   actionsCatalogPath: DEFAULT_ACTIONS_CSV_PATH,
   selectedIds: {},
+  otherCategoryText: "",
   topRisks: [],
   history: [0],
   score: 0,
@@ -275,6 +278,9 @@ let creditBudgetHalfUnits = 0;
 let chartCardPinned = false;
 let victoryModalVisible = false;
 let victoryReachedDuringCurrentStreak = false;
+let otherCategoryDraft = "";
+let otherCategoryDirty = false;
+let otherCategorySaveHandle = null;
 const CHART_PIN_STORAGE_KEY = "climadapt-chart-pinned";
 
 function normalizeTextKey(value) {
@@ -663,6 +669,7 @@ function renderMasterRiskSelectOptions(selectedValues = []) {
     select.appendChild(fragment);
     select.value = currentValue;
   });
+
 }
 
 function renderMasterActionCatalogOptions(selectedPath = DEFAULT_ACTIONS_CSV_PATH) {
@@ -1248,6 +1255,7 @@ function normalizeRoomState(value) {
   }
 
   next.actionsCatalogPath = getRoomActionsCatalogPath(next);
+  next.otherCategoryText = String(next.otherCategoryText || "");
   next.topRisks = sanitizeTopRisks(next.topRisks);
   next.mode = Number(next.mode) || 0;
   next.resetVersion = Number(next.resetVersion) || 0;
@@ -1286,6 +1294,10 @@ function getOrderedCategories() {
 
     return left.localeCompare(right, "fr", { sensitivity: "base" });
   });
+}
+
+function getDisplayedCategories() {
+  return [...getOrderedCategories(), OTHER_RESOURCE_CATEGORY];
 }
 
 function buildDisplayedActionNumberMap() {
@@ -2431,6 +2443,7 @@ function renderTopRisks(state) {
       impactEl.classList.add("hidden");
     }
   });
+
 }
 
 function renderMasterRiskSetup(state) {
@@ -2753,7 +2766,7 @@ function renderCategoryFilter() {
     return;
   }
 
-  const categories = getOrderedCategories();
+  const categories = getDisplayedCategories();
 
   categoryFilterSelect.innerHTML =
     `<option value="">Tout afficher</option>` +
@@ -2781,7 +2794,7 @@ function renderActionsGrid() {
 
   grid.innerHTML = "";
 
-  const categories = getOrderedCategories();
+  const categories = getDisplayedCategories();
 
   let globalNumber = 1;
 
@@ -2795,6 +2808,12 @@ function renderActionsGrid() {
     `;
 
     const actionsGrid = section.querySelector(".actions-grid");
+    if (category === OTHER_RESOURCE_CATEGORY) {
+      actionsGrid.innerHTML = buildOtherCategoryCardMarkup();
+      grid.appendChild(section);
+      return;
+    }
+
     actions
       .filter((action) => action.cat === category && isActionVisibleForRole(action))
       .forEach((action) => {
@@ -2865,6 +2884,27 @@ function buildActionCardMarkup(action, number) {
   `;
 }
 
+function buildOtherCategoryCardMarkup() {
+  return `
+    <div class="action-card action-card--other">
+      <div class="action-card__inner">
+        <div class="action-card__face action-card__face--front action-card__face--other">
+          <div class="action-card__content action-card__content--other">
+            <div class="action-card__title">
+              <strong>61. Note libre</strong>
+            </div>
+            <textarea
+              id="otherCategoryTextarea"
+              class="other-category__textarea"
+              placeholder="Ecrivez ici..."
+            ></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderSelectionState(state) {
   const selectedIds = state?.selectedIds || {};
 
@@ -2880,6 +2920,28 @@ function renderSelectionState(state) {
     card.classList.toggle("selected", checked);
     selectButton.textContent = checked ? "✓" : "Sélectionner";
   });
+
+  renderOtherCategoryState(state);
+}
+
+function renderOtherCategoryState(state) {
+  const textarea = document.getElementById("otherCategoryTextarea");
+  if (!textarea) {
+    return;
+  }
+
+  const remoteValue = String(state?.otherCategoryText || "");
+  if (otherCategoryDirty && otherCategoryDraft === remoteValue) {
+    otherCategoryDirty = false;
+  }
+
+  const shouldPreserveDraft =
+    document.activeElement === textarea && otherCategoryDirty;
+  const nextValue = shouldPreserveDraft ? otherCategoryDraft : remoteValue;
+
+  if (textarea.value !== nextValue) {
+    textarea.value = nextValue;
+  }
 }
 
 function renderScoreBlock(state) {
@@ -3421,6 +3483,30 @@ async function requestModeChange(nextMode) {
   }
 }
 
+async function requestOtherCategoryTextSave(value) {
+  if (!roomRef) {
+    return;
+  }
+
+  const nextValue = String(value || "");
+
+  try {
+    await roomRef.transaction((current) => {
+      const next = normalizeRoomState(current);
+      if (String(next.otherCategoryText || "") === nextValue) {
+        return next;
+      }
+
+      next.otherCategoryText = nextValue;
+      next.updatedAt = Date.now();
+      return next;
+    });
+  } catch (error) {
+    console.error(error);
+    showMessage("Impossible de synchroniser la note libre.");
+  }
+}
+
 async function requestReset() {
   if (!roomRef || !isCurrentUserMaster()) {
     showMessage("Réservé au maître de partie.");
@@ -3757,6 +3843,25 @@ document.addEventListener("click", (event) => {
   }
 
   requestSelectionToggle(checkbox.dataset.id);
+});
+
+document.addEventListener("input", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLTextAreaElement) || target.id !== "otherCategoryTextarea") {
+    return;
+  }
+
+  otherCategoryDraft = target.value;
+  otherCategoryDirty = true;
+
+  if (otherCategorySaveHandle) {
+    window.clearTimeout(otherCategorySaveHandle);
+  }
+
+  otherCategorySaveHandle = window.setTimeout(() => {
+    otherCategorySaveHandle = null;
+    requestOtherCategoryTextSave(otherCategoryDraft);
+  }, 250);
 });
 
 function applyInitialVisibility() {
@@ -4107,3 +4212,6 @@ window.setMode = setMode;
 window.startWorkshop = startWorkshop;
 window.resetGame = resetGame;
 window.exportPDF = exportPDF;
+
+
+

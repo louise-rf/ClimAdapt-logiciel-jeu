@@ -5,9 +5,9 @@
     "path": "actions_selection.csv"
   },
   {
-    "id": "compiegne-gc-conception-construction-gestion-final",
-    "label": "Compiègne (GC = conception, construction, gestion) - Final",
-    "path": "fiches actions - catalogues types/Compiègne (GC = conception, construction, gestion) - Final.csv"
+    "id": "1-compiegne-conception-construction-gestion",
+    "label": "1 - Compiègne (conception, construction, gestion)",
+    "path": "fiches actions - catalogues types/1 - Compiègne (conception, construction, gestion).csv"
   },
   {
     "id": "exemple-1-compiegne",
