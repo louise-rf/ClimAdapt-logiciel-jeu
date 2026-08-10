@@ -1340,7 +1340,7 @@ function getSelectedActionsFromState(state) {
 }
 
 function getOtherCategoryBonus(state) {
-  return state?.otherCategorySelected ? 0.5 : 0;
+  return state?.otherCategorySelected ? 0.25 : 0;
 }
 
 function computeRoomScore(state, selectedActions = getSelectedActionsFromState(state)) {
