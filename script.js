@@ -244,7 +244,9 @@ const DEFAULT_ROOM_STATE = {
   resetVersion: 0,
   actionsCatalogPath: DEFAULT_ACTIONS_CSV_PATH,
   selectedIds: {},
+  otherCategorySelected: false,
   otherCategoryText: "",
+  otherCategoryBonusEventAt: 0,
   topRisks: [],
   history: [0],
   score: 0,
@@ -281,6 +283,8 @@ let victoryReachedDuringCurrentStreak = false;
 let otherCategoryDraft = "";
 let otherCategoryDirty = false;
 let otherCategorySaveHandle = null;
+let bonusToastHandle = null;
+let lastSeenOtherCategoryBonusEventAt = null;
 const CHART_PIN_STORAGE_KEY = "climadapt-chart-pinned";
 
 function normalizeTextKey(value) {
@@ -843,6 +847,7 @@ function redirectToInitialRoomScreen(message) {
   }
 
   roomDeletionHandled = true;
+  resetOtherCategoryClientState();
   resetToInitialRoomGate(message);
 }
 
@@ -974,9 +979,56 @@ function closeVictoryModal() {
   }
 }
 
+function openBonusToast() {
+  const toast = document.getElementById("bonusToast");
+  if (!toast) {
+    return;
+  }
+
+  if (bonusToastHandle) {
+    window.clearTimeout(bonusToastHandle);
+  }
+
+  toast.classList.remove("hidden");
+  toast.setAttribute("aria-hidden", "false");
+  bonusToastHandle = window.setTimeout(() => {
+    closeBonusToast();
+  }, 2800);
+}
+
+function closeBonusToast() {
+  const toast = document.getElementById("bonusToast");
+  if (!toast) {
+    return;
+  }
+
+  toast.classList.add("hidden");
+  toast.setAttribute("aria-hidden", "true");
+
+  if (bonusToastHandle) {
+    window.clearTimeout(bonusToastHandle);
+    bonusToastHandle = null;
+  }
+}
+
+function resetOtherCategoryClientState() {
+  otherCategoryDraft = "";
+  otherCategoryDirty = false;
+  lastSeenOtherCategoryBonusEventAt = null;
+
+  if (otherCategorySaveHandle) {
+    window.clearTimeout(otherCategorySaveHandle);
+    otherCategorySaveHandle = null;
+  }
+
+  closeBonusToast();
+}
+
 function updateVictoryModalState(state) {
+  const selectedActions = getSelectedActionsFromState(state);
+  const metrics = computeMetricsFromSelection(selectedActions);
   const isWinningState =
-    Number(state?.mode) === 3 && Number(state?.score) === 10;
+    Number(state?.mode) === 3 && Number(metrics.score) === 10;
 
   if (isWinningState && !victoryReachedDuringCurrentStreak) {
     victoryReachedDuringCurrentStreak = true;
@@ -990,6 +1042,23 @@ function updateVictoryModalState(state) {
       closeVictoryModal();
     }
   }
+}
+
+function syncOtherCategoryBonusToast(state) {
+  const eventAt = Number(state?.otherCategoryBonusEventAt) || 0;
+
+  if (lastSeenOtherCategoryBonusEventAt === null) {
+    lastSeenOtherCategoryBonusEventAt = eventAt;
+    return;
+  }
+
+  if (eventAt > lastSeenOtherCategoryBonusEventAt) {
+    lastSeenOtherCategoryBonusEventAt = eventAt;
+    openBonusToast();
+    return;
+  }
+
+  lastSeenOtherCategoryBonusEventAt = eventAt;
 }
 
 function openModeRulesModal(nextMode) {
@@ -1255,7 +1324,9 @@ function normalizeRoomState(value) {
   }
 
   next.actionsCatalogPath = getRoomActionsCatalogPath(next);
+  next.otherCategorySelected = Boolean(next.otherCategorySelected);
   next.otherCategoryText = String(next.otherCategoryText || "");
+  next.otherCategoryBonusEventAt = Number(next.otherCategoryBonusEventAt) || 0;
   next.topRisks = sanitizeTopRisks(next.topRisks);
   next.mode = Number(next.mode) || 0;
   next.resetVersion = Number(next.resetVersion) || 0;
@@ -1266,6 +1337,19 @@ function normalizeRoomState(value) {
 function getSelectedActionsFromState(state) {
   const selectedIds = state?.selectedIds || {};
   return actions.filter((action) => selectedIds[String(action.id)]);
+}
+
+function getOtherCategoryBonus(state) {
+  return state?.otherCategorySelected ? 0.25 : 0;
+}
+
+function computeRoomScore(state, selectedActions = getSelectedActionsFromState(state)) {
+  const metrics = computeMetricsFromSelection(selectedActions);
+  return {
+    ...metrics,
+    score: metrics.score + getOtherCategoryBonus(state),
+    baseScore: metrics.score,
+  };
 }
 
 function getSelectionCreditHalfUnits(selectedActions) {
@@ -2898,6 +2982,9 @@ function buildOtherCategoryCardMarkup() {
               class="other-category__textarea"
               placeholder="Ecrivez ici..."
             ></textarea>
+            <button type="button" class="select-btn other-category__select-btn">
+              Sélectionner
+            </button>
           </div>
         </div>
       </div>
@@ -2926,6 +3013,8 @@ function renderSelectionState(state) {
 
 function renderOtherCategoryState(state) {
   const textarea = document.getElementById("otherCategoryTextarea");
+  const card = document.querySelector(".action-card--other");
+  const selectButton = document.querySelector(".other-category__select-btn");
   if (!textarea) {
     return;
   }
@@ -2942,13 +3031,20 @@ function renderOtherCategoryState(state) {
   if (textarea.value !== nextValue) {
     textarea.value = nextValue;
   }
+
+  const isSelected = Boolean(state?.otherCategorySelected);
+  if (card) {
+    card.classList.toggle("selected", isSelected);
+  }
+  if (selectButton) {
+    selectButton.textContent = isSelected ? "✓" : "Selectionner";
+  }
 }
 
 function renderScoreBlock(state) {
   const selectedActions = getSelectedActionsFromState(state);
-  const metrics = computeMetricsFromSelection(selectedActions);
-  const persistedScore = Number(state?.score);
-  const score = Number.isFinite(persistedScore) ? persistedScore : metrics.score;
+  const metrics = computeRoomScore(state, selectedActions);
+  const score = metrics.score;
   const selectedCount = selectedActions.length;
   const selectedCreditHalfUnits = getSelectionCreditHalfUnits(selectedActions);
   const selectedCredits = halfUnitsToCredit(selectedCreditHalfUnits);
@@ -2960,7 +3056,7 @@ function renderScoreBlock(state) {
   const revealScore =
     shouldRevealScore(state, selectedCount) ||
     (isCurrentUserMaster() && (Number(state?.mode) === 2 || Number(state?.mode) === 3));
-  const ratio = score / 10;
+  const ratio = Math.min(score, 10) / 10;
 
   const scoreEl = document.getElementById("score");
   const scoreGaugeFill = document.getElementById("scoreGaugeFill");
@@ -2973,7 +3069,7 @@ function renderScoreBlock(state) {
   const summary = document.getElementById("summaryText");
 
   if (scoreEl) {
-    scoreEl.textContent = revealScore ? String(score) : "??";
+    scoreEl.textContent = revealScore ? formatCreditAmount(score) : "??";
     scoreEl.classList.toggle("score--placeholder", !revealScore);
     scoreEl.style.color = revealScore
       ? `rgb(${Math.round(255 * (1 - ratio))},${Math.round(255 * ratio)},0)`
@@ -3055,6 +3151,7 @@ function renderRoomState() {
   renderMasterRiskSetup(roomState);
   renderSelectionState(roomState);
   renderScoreBlock(roomState);
+  syncOtherCategoryBonusToast(roomState);
   updateVictoryModalState(roomState);
   updatePermissionUI();
   showMessage("");
@@ -3354,6 +3451,7 @@ async function handleMasterRiskSetupSubmit() {
   }
 
   setMasterRiskSetupError("");
+  let didCatalogChange = false;
 
   try {
     const result = await roomRef.transaction((current) => {
@@ -3362,11 +3460,15 @@ async function handleMasterRiskSetupSubmit() {
       const catalogChanged =
         normalizeCatalogPathKey(previousCatalogPath) !==
         normalizeCatalogPathKey(selectedCatalogPath);
+      didCatalogChange = catalogChanged;
 
       next.topRisks = topRisks;
       next.actionsCatalogPath = selectedCatalogPath;
       if (catalogChanged) {
         next.selectedIds = {};
+        next.otherCategorySelected = false;
+        next.otherCategoryText = "";
+        next.otherCategoryBonusEventAt = 0;
         next.history = [0];
         next.score = 0;
         next.resetVersion = (Number(next.resetVersion) || 0) + 1;
@@ -3379,6 +3481,9 @@ async function handleMasterRiskSetupSubmit() {
       setMasterRiskSetupError("Impossible d'enregistrer ce top 3.");
     } else {
       masterRiskSetupDirty = false;
+      if (didCatalogChange) {
+        resetOtherCategoryClientState();
+      }
     }
   } catch (error) {
     console.error(error);
@@ -3433,7 +3538,7 @@ async function requestSelectionToggle(actionId) {
       }
 
       const selectedActions = getSelectedActionsFromState(next);
-      const metrics = computeMetricsFromSelection(selectedActions);
+      const metrics = computeRoomScore(next, selectedActions);
       next.score = metrics.score;
       next.history = [...(next.history || [0]), metrics.score];
       next.updatedAt = Date.now();
@@ -3470,6 +3575,9 @@ async function requestModeChange(nextMode) {
 
       if (nextMode === 1 || nextMode === 2 || nextMode === 3) {
         next.selectedIds = {};
+        next.otherCategorySelected = false;
+        next.otherCategoryText = "";
+        next.otherCategoryBonusEventAt = 0;
         next.history = [0];
         next.score = 0;
       }
@@ -3480,7 +3588,10 @@ async function requestModeChange(nextMode) {
   } catch (error) {
     console.error(error);
     showMessage("Impossible de changer de manche.");
+    return;
   }
+
+  resetOtherCategoryClientState();
 }
 
 async function requestOtherCategoryTextSave(value) {
@@ -3491,19 +3602,57 @@ async function requestOtherCategoryTextSave(value) {
   const nextValue = String(value || "");
 
   try {
+    if (String(roomState?.otherCategoryText || "") === nextValue) {
+      return;
+    }
+
+    await roomRef.update({
+      otherCategoryText: nextValue,
+      updatedAt: Date.now(),
+    });
+  } catch (error) {
+    console.error(error);
+    showMessage("Impossible de synchroniser la note libre.");
+  }
+}
+
+async function requestOtherCategorySelectionToggle() {
+  if (!roomRef) {
+    return;
+  }
+
+  const isCurrentlySelected = Boolean(roomState?.otherCategorySelected);
+  const liveTextValue = otherCategoryDirty
+    ? otherCategoryDraft
+    : String(roomState?.otherCategoryText || "");
+  const hasOtherCategoryText = liveTextValue.trim().length > 0;
+
+  if (!isCurrentlySelected && !hasOtherCategoryText) {
+    return;
+  }
+
+  try {
     await roomRef.transaction((current) => {
       const next = normalizeRoomState(current);
-      if (String(next.otherCategoryText || "") === nextValue) {
-        return next;
+      const normalizedLiveTextValue = String(liveTextValue || "");
+      const nextSelected = !next.otherCategorySelected;
+
+      if (nextSelected && normalizedLiveTextValue.trim().length > 0) {
+        next.otherCategoryText = normalizedLiveTextValue;
+        next.otherCategoryBonusEventAt = Date.now();
       }
 
-      next.otherCategoryText = nextValue;
+      next.otherCategorySelected = nextSelected;
+      const selectedActions = getSelectedActionsFromState(next);
+      const metrics = computeRoomScore(next, selectedActions);
+      next.score = metrics.score;
+      next.history = [...(next.history || [0]), metrics.score];
       next.updatedAt = Date.now();
       return next;
     });
   } catch (error) {
     console.error(error);
-    showMessage("Impossible de synchroniser la note libre.");
+    showMessage("Impossible de synchroniser la selection de la note libre.");
   }
 }
 
@@ -3515,6 +3664,7 @@ async function requestReset() {
 
   try {
     roomDeletionPending = true;
+    resetOtherCategoryClientState();
     await roomRef.remove();
     redirectToInitialRoomScreen("La room a été réinitialisée.");
   } catch (error) {
@@ -3828,6 +3978,12 @@ document.addEventListener("click", (event) => {
   if (flipButton || backButton) {
     const card = event.target.closest(".action-card");
     toggleCardFlip(card, Boolean(flipButton));
+    return;
+  }
+
+  const otherCategorySelectButton = event.target.closest(".other-category__select-btn");
+  if (otherCategorySelectButton) {
+    requestOtherCategorySelectionToggle();
     return;
   }
 
@@ -4212,6 +4368,3 @@ window.setMode = setMode;
 window.startWorkshop = startWorkshop;
 window.resetGame = resetGame;
 window.exportPDF = exportPDF;
-
-
-
