@@ -3224,7 +3224,7 @@ function ensureRoomSubscription() {
         return;
       }
 
-      redirectToInitialRoomScreen("La room a ete reinitialisee.");
+      redirectToInitialRoomScreen("La room a été réinitialisée.");
       return;
     }
 
@@ -3430,7 +3430,7 @@ async function requestReset() {
   try {
     roomDeletionPending = true;
     await roomRef.remove();
-    redirectToInitialRoomScreen("La room a ete reinitialisee.");
+    redirectToInitialRoomScreen("La room a été réinitialisée.");
   } catch (error) {
     roomDeletionPending = false;
     console.error(error);
