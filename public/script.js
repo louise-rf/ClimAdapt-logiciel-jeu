@@ -5267,7 +5267,79 @@ function exportPDFCustom() {
   }
 }
 
-exportPDF = exportPDFEnhanced;
+function buildExportAchievementSummary(state) {
+  const unlocks = sanitizeAchievementUnlocks(state?.achievements);
+  return ACHIEVEMENT_KEYS.filter((key) => Number(unlocks[key]) > 0).map((key) => ({
+    key,
+    badge: ACHIEVEMENT_COPY[key].badge,
+    title: ACHIEVEMENT_COPY[key].title,
+  }));
+}
+
+function buildExportActionGroups(state) {
+  const selectedActions = getSelectedActionsFromState(state);
+  const groupedByCategory = selectedActions.reduce((acc, action) => {
+    const category = String(action.cat || "Autres actions").trim() || "Autres actions";
+    if (!acc[category]) {
+      acc[category] = [];
+    }
+
+    acc[category].push(String(action.title || "").trim());
+    return acc;
+  }, {});
+
+  const orderedCategories = getOrderedCategories();
+  const extraCategories = Object.keys(groupedByCategory).filter(
+    (category) => !orderedCategories.includes(category)
+  );
+
+  return [...orderedCategories, ...extraCategories]
+    .filter(
+      (category) => Array.isArray(groupedByCategory[category]) && groupedByCategory[category].length
+    )
+    .map((category) => ({
+      category,
+      actions: groupedByCategory[category],
+    }));
+}
+
+function formatExportScore(score) {
+  const numericScore = Number(score);
+  if (!Number.isFinite(numericScore)) {
+    return "0 / 10";
+  }
+
+  return `${String(numericScore).replace(".", ",")} / 10`;
+}
+
+function exportPDFStyled() {
+  const state = roomState || DEFAULT_ROOM_STATE;
+  const selectedActions = getSelectedActionsFromState(state);
+  const metrics = computeRoomScore(state, selectedActions);
+  const buildHtml = window.buildClimAdaptExportHtml;
+  const openPrintWindow = window.openClimAdaptPrintWindow;
+
+  if (typeof buildHtml !== "function" || typeof openPrintWindow !== "function") {
+    showMessage("Le modele d'export PDF n'est pas disponible.");
+    return;
+  }
+
+  const html = buildHtml({
+    scoreText: formatExportScore(metrics.score),
+    achievements: buildExportAchievementSummary(state),
+    actionGroups: buildExportActionGroups(state),
+    assets: {
+      logoUrl: new URL("images/Akteologo.svg", window.location.href).href,
+    },
+  });
+
+  const printWindow = openPrintWindow(html);
+  if (!printWindow) {
+    showMessage("Autorisez l'ouverture de la fenetre d'export PDF.");
+  }
+}
+
+exportPDF = exportPDFStyled;
 
 try {
   chartCardPinned = window.localStorage.getItem(CHART_PIN_STORAGE_KEY) === "1";
