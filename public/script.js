@@ -1698,14 +1698,10 @@ function maybeUnlockStability(nextState) {
 }
 
 function maybeTrackModeOneSelectionTiming(nextState, selectedAt) {
-  if (Number(nextState.mode) !== 1) {
-    return;
-  }
-
   const progress = sanitizeAchievementProgress(nextState.achievementProgress);
   nextState.achievementProgress = progress;
   if (!(Number(progress.modeOneStartedAt) > 0)) {
-    progress.modeOneStartedAt = Number(selectedAt) || Date.now();
+    return;
   }
 
   if (Number(progress.modeOneFirstSelectionAt) > 0) {
@@ -4177,13 +4173,6 @@ async function requestModeChange(nextMode) {
       } else {
         if (previousMode === 1) {
           next.achievementProgress.roundOneFinalIds = selectedActionIdsBeforeReset;
-          if (
-            !(Number(next.achievementProgress.modeOneFirstSelectionAt) > 0) &&
-            Number(next.achievementProgress.modeOneStartedAt) > 0 &&
-            now - Number(next.achievementProgress.modeOneStartedAt) >= TORTOISE_WINDOW_MS
-          ) {
-            unlockAchievement(next, "tortoise", now);
-          }
         }
 
         if (previousMode === 2 && nextMode !== 2) {
