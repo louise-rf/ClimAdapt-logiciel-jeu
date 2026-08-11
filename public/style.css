@@ -1274,28 +1274,28 @@
     color: var(--text_color);
   }
 
-  .creativity-badge {
-    display: flex;
-    justify-content: flex-start;
-    align-items: center;
-    width: 95%;
-    min-height: 2.4rem;
-    margin: 0 auto 0.35rem;
-    padding: 0;
-    border: 0;
-    background: transparent;
-  }
+.creativity-badge {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem 0.55rem;
+  width: 95%;
+  min-height: 2rem;
+  margin: 0 auto 0.85rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
 
-  .creativity-badge__pill {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 2rem;
-    width: calc((100% - 1.6rem) / 3);
-    min-width: 0;
-    padding: 0.35rem 0.5rem;
-    border-radius: 999px;
-    background: var(--accent_color);
+.creativity-badge__pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent_color);
     color: var(--accent_ink_color);
     font-size: 1.05rem;
     font-weight: 700;

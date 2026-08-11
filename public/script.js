@@ -245,6 +245,72 @@ const REFLECTION_GROUP_COLORS = Object.freeze([
   "#ffdede",
   "#dff5f4",
 ]);
+const ACHIEVEMENT_KEYS = Object.freeze([
+  "creativity",
+  "sobriety",
+  "curiosity",
+  "stability",
+  "hare",
+  "tortoise",
+]);
+const ACHIEVEMENT_COPY = Object.freeze({
+  creativity: {
+    badge: "\u2712\uFE0F",
+    eyebrow: "Succ\u00e8s 1 d\u00e9bloqu\u00e9",
+    title: "Cr\u00e9ativit\u00e9",
+    message: "il faut oser sortir des cases",
+  },
+  sobriety: {
+    badge: "\uD83D\uDCB0",
+    eyebrow: "Succ\u00e8s 2 d\u00e9bloqu\u00e9",
+    title: "Sobri\u00e9t\u00e9",
+    message: "votre portefeuille vous dit merci",
+  },
+  curiosity: {
+    badge: "\uD83D\uDD0D",
+    eyebrow: "Succ\u00e8s 3 d\u00e9bloqu\u00e9",
+    title: "Curiosit\u00e9",
+    message: "une carte sur deux n'a plus de secret pour vous",
+  },
+  stability: {
+    badge: "\uD83E\uDDF1",
+    eyebrow: "Succ\u00e8s 4 d\u00e9bloqu\u00e9",
+    title: "Stabilit\u00e9",
+    message: "on ne change pas une \u00e9quipe qui gagne",
+  },
+  hare: {
+    badge: "\uD83D\uDC07",
+    eyebrow: "Succ\u00e8s 5 d\u00e9bloqu\u00e9",
+    title: "Li\u00e8vre",
+    message: "\u00e0 toute vitesse",
+  },
+  tortoise: {
+    badge: "\uD83D\uDC22",
+    eyebrow: "Succ\u00e8s 6 d\u00e9bloqu\u00e9",
+    title: "Tortue",
+    message: "doucement mais sûrement",
+  },
+});
+const HARE_WINDOW_MS = 3 * 60 * 1000;
+const TORTOISE_WINDOW_MS = 8 * 60 * 1000;
+
+function buildDefaultAchievements() {
+  return ACHIEVEMENT_KEYS.reduce((acc, key) => {
+    acc[key] = 0;
+    return acc;
+  }, {});
+}
+
+function buildDefaultAchievementProgress() {
+  return {
+    modeOneStartedAt: 0,
+    modeOneFirstSelectionAt: 0,
+    roundOneFinalIds: [],
+    roundTwoFinalIds: [],
+    modeThreeSeenIds: {},
+    everSelectedIds: {},
+  };
+}
 
 const DEFAULT_ROOM_STATE = {
   masterUid: null,
@@ -256,6 +322,8 @@ const DEFAULT_ROOM_STATE = {
   otherCategoryText: "",
   otherCategoryBonusEventAt: 0,
   topRisks: [],
+  achievements: buildDefaultAchievements(),
+  achievementProgress: buildDefaultAchievementProgress(),
   reflectionEntries: [],
   reflectionGroups: [],
   reflectionGroupsRevealed: false,
@@ -295,7 +363,9 @@ let otherCategoryDraft = "";
 let otherCategoryDirty = false;
 let otherCategorySaveHandle = null;
 let bonusToastHandle = null;
-let lastSeenOtherCategoryBonusEventAt = null;
+let achievementToastQueue = [];
+let achievementToastInitialized = false;
+let lastSeenAchievementUnlocks = buildDefaultAchievements();
 const REFLECTION_ENTRY_MAX_LENGTH = 280;
 const REFLECTION_ENTRY_LIMIT = 100;
 const CHART_PIN_STORAGE_KEY = "climadapt-chart-pinned";
@@ -860,7 +930,7 @@ function redirectToInitialRoomScreen(message) {
   }
 
   roomDeletionHandled = true;
-  resetOtherCategoryClientState();
+  resetOtherCategoryClientState(true);
   resetToInitialRoomGate(message);
 }
 
@@ -992,10 +1062,21 @@ function closeVictoryModal() {
   }
 }
 
-function openBonusToast() {
+function openBonusToast(achievementKey) {
   const toast = document.getElementById("bonusToast");
+  const eyebrow = toast?.querySelector(".bonus-toast__eyebrow");
+  const title = toast?.querySelector(".bonus-toast__title");
+  const copy = ACHIEVEMENT_COPY[achievementKey];
   if (!toast) {
     return;
+  }
+
+  if (copy && eyebrow && title) {
+    eyebrow.textContent = copy.eyebrow;
+    title.replaceChildren();
+    const strong = document.createElement("strong");
+    strong.textContent = `${copy.title} :`;
+    title.append(strong, document.createTextNode(` ${copy.message}`));
   }
 
   if (bonusToastHandle) {
@@ -1006,7 +1087,8 @@ function openBonusToast() {
   toast.setAttribute("aria-hidden", "false");
   bonusToastHandle = window.setTimeout(() => {
     closeBonusToast();
-  }, 2800);
+    flushAchievementToastQueue();
+  }, 4800);
 }
 
 function closeBonusToast() {
@@ -1024,14 +1106,19 @@ function closeBonusToast() {
   }
 }
 
-function resetOtherCategoryClientState() {
+function resetOtherCategoryClientState(resetAchievementToastState = false) {
   otherCategoryDraft = "";
   otherCategoryDirty = false;
-  lastSeenOtherCategoryBonusEventAt = null;
 
   if (otherCategorySaveHandle) {
     window.clearTimeout(otherCategorySaveHandle);
     otherCategorySaveHandle = null;
+  }
+
+  if (resetAchievementToastState) {
+    achievementToastQueue = [];
+    achievementToastInitialized = false;
+    lastSeenAchievementUnlocks = buildDefaultAchievements();
   }
 
   closeBonusToast();
@@ -1057,31 +1144,57 @@ function updateVictoryModalState(state) {
   }
 }
 
-function syncOtherCategoryBonusToast(state) {
-  const eventAt = Number(state?.otherCategoryBonusEventAt) || 0;
-
-  if (lastSeenOtherCategoryBonusEventAt === null) {
-    lastSeenOtherCategoryBonusEventAt = eventAt;
+function flushAchievementToastQueue() {
+  if (bonusToastHandle || achievementToastQueue.length === 0) {
     return;
   }
 
-  if (eventAt > lastSeenOtherCategoryBonusEventAt) {
-    lastSeenOtherCategoryBonusEventAt = eventAt;
-    openBonusToast();
-    return;
+  const nextAchievementKey = achievementToastQueue.shift();
+  if (nextAchievementKey) {
+    openBonusToast(nextAchievementKey);
   }
-
-  lastSeenOtherCategoryBonusEventAt = eventAt;
 }
 
-function renderCreativityBadge(state) {
-  const creativityBadge = document.getElementById("creativityBadge");
-  if (!creativityBadge) {
+function syncAchievementToasts(state) {
+  const unlocks = sanitizeAchievementUnlocks(state?.achievements);
+
+  if (!achievementToastInitialized) {
+    achievementToastInitialized = true;
+    lastSeenAchievementUnlocks = { ...unlocks };
     return;
   }
 
-  const unlocked = Number(state?.otherCategoryBonusEventAt) > 0;
-  creativityBadge.classList.toggle("hidden", !unlocked);
+  ACHIEVEMENT_KEYS.forEach((key) => {
+    if (
+      Number(unlocks[key]) > Number(lastSeenAchievementUnlocks[key]) &&
+      !achievementToastQueue.includes(key)
+    ) {
+      achievementToastQueue.push(key);
+    }
+  });
+
+  lastSeenAchievementUnlocks = { ...unlocks };
+  flushAchievementToastQueue();
+}
+
+function renderAchievementsBadges(state) {
+  const badgeContainer = document.getElementById("creativityBadge");
+  if (!badgeContainer) {
+    return;
+  }
+
+  const unlocks = sanitizeAchievementUnlocks(state?.achievements);
+  const unlockedKeys = ACHIEVEMENT_KEYS.filter((key) => Number(unlocks[key]) > 0);
+  badgeContainer.replaceChildren();
+  badgeContainer.classList.toggle("hidden", unlockedKeys.length === 0);
+
+  unlockedKeys.forEach((key) => {
+    const pill = document.createElement("span");
+    pill.className = "creativity-badge__pill";
+    pill.setAttribute("aria-label", ACHIEVEMENT_COPY[key].title);
+    pill.textContent = ACHIEVEMENT_COPY[key].badge;
+    badgeContainer.appendChild(pill);
+  });
 }
 
 function openModeRulesModal(nextMode) {
@@ -1351,6 +1464,8 @@ function normalizeRoomState(value) {
   next.otherCategoryText = String(next.otherCategoryText || "");
   next.otherCategoryBonusEventAt = Number(next.otherCategoryBonusEventAt) || 0;
   next.topRisks = sanitizeTopRisks(next.topRisks);
+  next.achievements = sanitizeAchievementUnlocks(next.achievements);
+  next.achievementProgress = sanitizeAchievementProgress(next.achievementProgress);
   next.reflectionEntries = sanitizeReflectionEntries(next.reflectionEntries);
   next.reflectionGroups = sanitizeReflectionGroups(
     next.reflectionGroups,
@@ -1361,6 +1476,79 @@ function normalizeRoomState(value) {
   next.resetVersion = Number(next.resetVersion) || 0;
   next.score = Number(next.score) || 0;
   return next;
+}
+
+function sanitizeAchievementUnlocks(value) {
+  const next = buildDefaultAchievements();
+  if (!value || typeof value !== "object") {
+    return next;
+  }
+
+  ACHIEVEMENT_KEYS.forEach((key) => {
+    next[key] = Number(value[key]) || 0;
+  });
+  return next;
+}
+
+function sanitizeAchievementIdArray(value) {
+  const entries = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+    ? Object.keys(value)
+        .sort((left, right) => Number(left) - Number(right))
+        .map((key) => value[key])
+    : [];
+
+  return [...new Set(
+    entries
+      .map((entry) => String(entry || "").trim())
+      .filter(Boolean)
+  )];
+}
+
+function sanitizeAchievementIdMap(value) {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  return Object.keys(value).reduce((acc, key) => {
+    if (value[key]) {
+      const normalizedKey = String(key || "").trim();
+      if (normalizedKey) {
+        acc[normalizedKey] = true;
+      }
+    }
+    return acc;
+  }, {});
+}
+
+function sanitizeAchievementProgress(value) {
+  const next = buildDefaultAchievementProgress();
+  if (!value || typeof value !== "object") {
+    return next;
+  }
+
+  next.modeOneStartedAt = Number(value.modeOneStartedAt) || 0;
+  next.modeOneFirstSelectionAt = Number(value.modeOneFirstSelectionAt) || 0;
+  next.roundOneFinalIds = sanitizeAchievementIdArray(value.roundOneFinalIds);
+  next.roundTwoFinalIds = sanitizeAchievementIdArray(value.roundTwoFinalIds);
+  next.modeThreeSeenIds = sanitizeAchievementIdMap(value.modeThreeSeenIds);
+  next.everSelectedIds = sanitizeAchievementIdMap(value.everSelectedIds);
+  return next;
+}
+
+function unlockAchievement(nextState, achievementKey, unlockedAt = Date.now()) {
+  if (!ACHIEVEMENT_COPY[achievementKey]) {
+    return false;
+  }
+
+  nextState.achievements = sanitizeAchievementUnlocks(nextState.achievements);
+  if (Number(nextState.achievements[achievementKey]) > 0) {
+    return false;
+  }
+
+  nextState.achievements[achievementKey] = Number(unlockedAt) || Date.now();
+  return true;
 }
 
 function normalizeReflectionEntryText(value) {
@@ -1474,8 +1662,66 @@ function getSelectedActionsFromState(state) {
   return actions.filter((action) => selectedIds[String(action.id)]);
 }
 
+function getSelectedActionIdsFromState(state) {
+  return getSelectedActionsFromState(state).map((action) => String(action.id));
+}
+
 function getOtherCategoryBonus(state) {
   return state?.otherCategorySelected ? 0.1 : 0;
+}
+
+function maybeUnlockCuriosity(nextState) {
+  const totalActionCount = actions.length;
+  if (!totalActionCount) {
+    return;
+  }
+
+  const progress = sanitizeAchievementProgress(nextState.achievementProgress);
+  nextState.achievementProgress = progress;
+  const seenCount = Object.keys(progress.everSelectedIds).length;
+  if (seenCount / totalActionCount > 0.5) {
+    unlockAchievement(nextState, "curiosity");
+  }
+}
+
+function maybeUnlockStability(nextState) {
+  const progress = sanitizeAchievementProgress(nextState.achievementProgress);
+  nextState.achievementProgress = progress;
+  const roundTwoIds = new Set(progress.roundTwoFinalIds);
+  const unlocked = progress.roundOneFinalIds.some(
+    (id) => roundTwoIds.has(id) && progress.modeThreeSeenIds[id]
+  );
+
+  if (unlocked) {
+    unlockAchievement(nextState, "stability");
+  }
+}
+
+function maybeTrackModeOneSelectionTiming(nextState, selectedAt) {
+  if (Number(nextState.mode) !== 1) {
+    return;
+  }
+
+  const progress = sanitizeAchievementProgress(nextState.achievementProgress);
+  nextState.achievementProgress = progress;
+  if (!(Number(progress.modeOneStartedAt) > 0)) {
+    progress.modeOneStartedAt = Number(selectedAt) || Date.now();
+  }
+
+  if (Number(progress.modeOneFirstSelectionAt) > 0) {
+    return;
+  }
+
+  progress.modeOneFirstSelectionAt = Number(selectedAt) || Date.now();
+  const elapsed = progress.modeOneFirstSelectionAt - progress.modeOneStartedAt;
+
+  if (elapsed <= HARE_WINDOW_MS) {
+    unlockAchievement(nextState, "hare", progress.modeOneFirstSelectionAt);
+  }
+
+  if (elapsed >= TORTOISE_WINDOW_MS) {
+    unlockAchievement(nextState, "tortoise", progress.modeOneFirstSelectionAt);
+  }
 }
 
 function computeRoomScore(state, selectedActions = getSelectedActionsFromState(state)) {
@@ -3307,8 +3553,8 @@ function renderRoomState() {
   renderSelectionState(roomState);
   renderScoreBlock(roomState);
   renderReflectionBoard(roomState);
-  renderCreativityBadge(roomState);
-  syncOtherCategoryBonusToast(roomState);
+  renderAchievementsBadges(roomState);
+  syncAchievementToasts(roomState);
   updateVictoryModalState(roomState);
   updatePermissionUI();
   showMessage("");
@@ -3803,6 +4049,8 @@ async function handleMasterRiskSetupSubmit() {
         next.otherCategorySelected = false;
         next.otherCategoryText = "";
         next.otherCategoryBonusEventAt = 0;
+        next.achievements = buildDefaultAchievements();
+        next.achievementProgress = buildDefaultAchievementProgress();
         next.history = [0];
         next.score = 0;
         next.resetVersion = (Number(next.resetVersion) || 0) + 1;
@@ -3816,7 +4064,7 @@ async function handleMasterRiskSetupSubmit() {
     } else {
       masterRiskSetupDirty = false;
       if (didCatalogChange) {
-        resetOtherCategoryClientState();
+        resetOtherCategoryClientState(true);
       }
     }
   } catch (error) {
@@ -3841,6 +4089,7 @@ async function requestSelectionToggle(actionId) {
     await roomRef.transaction((current) => {
       const next = normalizeRoomState(current);
       const key = String(actionId);
+      const now = Date.now();
 
       if (next.selectedIds[key]) {
         delete next.selectedIds[key];
@@ -3869,13 +4118,21 @@ async function requestSelectionToggle(actionId) {
         }
 
         next.selectedIds[key] = true;
+        next.achievementProgress = sanitizeAchievementProgress(next.achievementProgress);
+        next.achievementProgress.everSelectedIds[key] = true;
+        maybeTrackModeOneSelectionTiming(next, now);
+        maybeUnlockCuriosity(next);
+        if (Number(next.mode) === 3) {
+          next.achievementProgress.modeThreeSeenIds[key] = true;
+          maybeUnlockStability(next);
+        }
       }
 
       const selectedActions = getSelectedActionsFromState(next);
       const metrics = computeRoomScore(next, selectedActions);
       next.score = metrics.score;
       next.history = [...(next.history || [0]), metrics.score];
-      next.updatedAt = Date.now();
+      next.updatedAt = now;
 
       return next;
     });
@@ -3904,6 +4161,43 @@ async function requestModeChange(nextMode) {
   try {
     await roomRef.transaction((current) => {
       const next = normalizeRoomState(current);
+      const previousMode = Number(next.mode) || 0;
+      const now = Date.now();
+      const selectedActionsBeforeReset = getSelectedActionsFromState(next);
+      const selectedActionIdsBeforeReset = selectedActionsBeforeReset.map((action) =>
+        String(action.id)
+      );
+      const usedCreditHalfUnits = getSelectionCreditHalfUnits(selectedActionsBeforeReset);
+      next.achievementProgress = sanitizeAchievementProgress(next.achievementProgress);
+
+      if (nextMode === 1) {
+        next.achievements = buildDefaultAchievements();
+        next.achievementProgress = buildDefaultAchievementProgress();
+        next.achievementProgress.modeOneStartedAt = now;
+      } else {
+        if (previousMode === 1) {
+          next.achievementProgress.roundOneFinalIds = selectedActionIdsBeforeReset;
+          if (
+            !(Number(next.achievementProgress.modeOneFirstSelectionAt) > 0) &&
+            Number(next.achievementProgress.modeOneStartedAt) > 0 &&
+            now - Number(next.achievementProgress.modeOneStartedAt) >= TORTOISE_WINDOW_MS
+          ) {
+            unlockAchievement(next, "tortoise", now);
+          }
+        }
+
+        if (previousMode === 2 && nextMode !== 2) {
+          next.achievementProgress.roundTwoFinalIds = selectedActionIdsBeforeReset;
+          if (creditBudgetHalfUnits > 0 && usedCreditHalfUnits < creditBudgetHalfUnits) {
+            unlockAchievement(next, "sobriety", now);
+          }
+        }
+
+        if (nextMode === 3 && previousMode !== 3) {
+          next.achievementProgress.modeThreeSeenIds = {};
+        }
+      }
+
       next.mode = nextMode;
       next.resetVersion = (Number(next.resetVersion) || 0) + 1;
 
@@ -3919,7 +4213,7 @@ async function requestModeChange(nextMode) {
         next.score = 0;
       }
 
-      next.updatedAt = Date.now();
+      next.updatedAt = now;
       return next;
     });
   } catch (error) {
@@ -3971,6 +4265,7 @@ async function requestOtherCategorySelectionToggle() {
   try {
     await roomRef.transaction((current) => {
       const next = normalizeRoomState(current);
+      const now = Date.now();
       const normalizedLiveTextValue = String(liveTextValue || "");
       const nextSelected = !next.otherCategorySelected;
 
@@ -3979,6 +4274,7 @@ async function requestOtherCategorySelectionToggle() {
         if (!(Number(next.otherCategoryBonusEventAt) > 0)) {
           next.otherCategoryBonusEventAt = Date.now();
         }
+        unlockAchievement(next, "creativity", Date.now());
       }
 
       next.otherCategorySelected = nextSelected;
@@ -3986,7 +4282,7 @@ async function requestOtherCategorySelectionToggle() {
       const metrics = computeRoomScore(next, selectedActions);
       next.score = metrics.score;
       next.history = [...(next.history || [0]), metrics.score];
-      next.updatedAt = Date.now();
+      next.updatedAt = now;
       return next;
     });
   } catch (error) {
@@ -4184,7 +4480,7 @@ async function requestReset() {
 
   try {
     roomDeletionPending = true;
-    resetOtherCategoryClientState();
+    resetOtherCategoryClientState(true);
     await roomRef.remove();
     redirectToInitialRoomScreen("La room a été réinitialisée.");
   } catch (error) {
