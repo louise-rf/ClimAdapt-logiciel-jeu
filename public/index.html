@@ -324,8 +324,35 @@
     </section>
 
     <section id="reflectionScreen" class="home-screen hidden">
-      <div class="home-screen__content home-screen__content--setup">
-        <div class="home-screen__text home-screen__text--setup"></div>
+      <div class="home-screen__content home-screen__content--setup reflection-screen__content">
+        <div class="home-screen__text home-screen__text--setup reflection-screen__text">
+          <h1 class="home-screen__title reflection-screen__title">
+            C'est quoi les <span class="home-screen__title-highlight">bonnes pratiques</span> ?
+          </h1>
+
+          <div class="reflection-board">
+            <input
+              id="reflectionInput"
+              class="reflection-board__input"
+              type="text"
+              maxlength="280"
+              placeholder="Ecrivez ici puis appuyez sur Entree"
+              autocomplete="off"
+            >
+          </div>
+
+          <div class="reflection-master-tools hidden" id="reflectionMasterTools">
+            <button
+              id="reflectionAddGroupBtn"
+              class="reflection-master-tools__button"
+              type="button"
+            >
+              Nouveau sous-groupe
+            </button>
+          </div>
+
+          <div class="reflection-feed" id="reflectionFeed"></div>
+        </div>
       </div>
     </section>
 

@@ -237,6 +237,14 @@ const RESOURCE_CATEGORY_ORDER = [
 ];
 
 const OTHER_RESOURCE_CATEGORY = "Autre";
+const REFLECTION_GROUP_COLORS = Object.freeze([
+  "#dff4df",
+  "#e1ecff",
+  "#fff1cc",
+  "#f6ddff",
+  "#ffdede",
+  "#dff5f4",
+]);
 
 const DEFAULT_ROOM_STATE = {
   masterUid: null,
@@ -248,6 +256,8 @@ const DEFAULT_ROOM_STATE = {
   otherCategoryText: "",
   otherCategoryBonusEventAt: 0,
   topRisks: [],
+  reflectionEntries: [],
+  reflectionGroups: [],
   history: [0],
   score: 0,
   updatedAt: 0,
@@ -285,6 +295,8 @@ let otherCategoryDirty = false;
 let otherCategorySaveHandle = null;
 let bonusToastHandle = null;
 let lastSeenOtherCategoryBonusEventAt = null;
+const REFLECTION_ENTRY_MAX_LENGTH = 280;
+const REFLECTION_ENTRY_LIMIT = 100;
 const CHART_PIN_STORAGE_KEY = "climadapt-chart-pinned";
 
 function normalizeTextKey(value) {
@@ -1328,10 +1340,121 @@ function normalizeRoomState(value) {
   next.otherCategoryText = String(next.otherCategoryText || "");
   next.otherCategoryBonusEventAt = Number(next.otherCategoryBonusEventAt) || 0;
   next.topRisks = sanitizeTopRisks(next.topRisks);
+  next.reflectionEntries = sanitizeReflectionEntries(next.reflectionEntries);
+  next.reflectionGroups = sanitizeReflectionGroups(
+    next.reflectionGroups,
+    next.reflectionEntries
+  );
   next.mode = Number(next.mode) || 0;
   next.resetVersion = Number(next.resetVersion) || 0;
   next.score = Number(next.score) || 0;
   return next;
+}
+
+function normalizeReflectionEntryText(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, REFLECTION_ENTRY_MAX_LENGTH);
+}
+
+function sanitizeReflectionEntries(value) {
+  const rawEntries = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+    ? Object.keys(value)
+        .sort((left, right) => Number(left) - Number(right))
+        .map((key) => value[key])
+    : [];
+
+  return rawEntries
+    .map((entry, index) => {
+      if (typeof entry === "string") {
+        const text = normalizeReflectionEntryText(entry);
+        if (!text) {
+          return null;
+        }
+
+        return {
+          id: `legacy-${index}`,
+          text,
+          createdAt: 0,
+          authorUid: "",
+        };
+      }
+
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      const text = normalizeReflectionEntryText(entry.text);
+      if (!text) {
+        return null;
+      }
+
+      const createdAt = Number(entry.createdAt) || 0;
+      const id =
+        String(entry.id || "").trim() ||
+        `entry-${index}-${createdAt}`;
+
+      return {
+        id,
+        text,
+        createdAt,
+        authorUid: String(entry.authorUid || "").trim(),
+      };
+    })
+    .filter(Boolean)
+    .slice(-REFLECTION_ENTRY_LIMIT);
+}
+
+function sanitizeReflectionGroups(value, entries = []) {
+  const validEntryIds = new Set(
+    sanitizeReflectionEntries(entries).map((entry) => entry.id)
+  );
+  const rawGroups = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+    ? Object.keys(value)
+        .sort((left, right) => Number(left) - Number(right))
+        .map((key) => value[key])
+    : [];
+
+  const assignedEntryIds = new Set();
+
+  return rawGroups
+    .map((group, index) => {
+      if (!group || typeof group !== "object") {
+        return null;
+      }
+
+      const id = String(group.id || "").trim() || `group-${index}`;
+      const label = String(group.label || "").trim() || `Sous-groupe ${index + 1}`;
+      const color =
+        REFLECTION_GROUP_COLORS.includes(group.color)
+          ? group.color
+          : REFLECTION_GROUP_COLORS[index % REFLECTION_GROUP_COLORS.length];
+      const entryIds = Array.isArray(group.entryIds)
+        ? group.entryIds
+            .map((entryId) => String(entryId || "").trim())
+            .filter(
+              (entryId) =>
+                entryId &&
+                validEntryIds.has(entryId) &&
+                !assignedEntryIds.has(entryId)
+            )
+        : [];
+
+      entryIds.forEach((entryId) => assignedEntryIds.add(entryId));
+
+      return {
+        id,
+        label,
+        color,
+        entryIds,
+      };
+    })
+    .filter(Boolean);
 }
 
 function getSelectedActionsFromState(state) {
@@ -2626,6 +2749,8 @@ function renderModeUI(nextMode) {
   const pdfBtn = document.getElementById("pdfBtn");
   const criteriaBox = document.getElementById("criteriaBox");
   const selectionBudgetLabel = document.getElementById("selectionBudgetLabel");
+  const scoreBox = document.querySelector(".score-box");
+  const actionBox = document.querySelector(".action-box");
 
   const modeCopy = {
     1: {
@@ -2683,6 +2808,14 @@ function renderModeUI(nextMode) {
 
   if (riskCardEl) {
     riskCardEl.style.display = nextMode >= 2 && nextMode <= 3 ? "" : "none";
+  }
+
+  if (scoreBox) {
+    scoreBox.style.display = nextMode === 4 ? "none" : "";
+  }
+
+  if (actionBox) {
+    actionBox.style.display = nextMode === 4 ? "none" : "";
   }
 
   if (criteriaBox) {
@@ -3161,10 +3294,146 @@ function renderRoomState() {
   renderMasterRiskSetup(roomState);
   renderSelectionState(roomState);
   renderScoreBlock(roomState);
+  renderReflectionBoard(roomState);
   syncOtherCategoryBonusToast(roomState);
   updateVictoryModalState(roomState);
   updatePermissionUI();
   showMessage("");
+}
+
+function renderReflectionBoard(state) {
+  const reflectionInput = document.getElementById("reflectionInput");
+  const reflectionFeed = document.getElementById("reflectionFeed");
+  const reflectionMasterTools = document.getElementById("reflectionMasterTools");
+  const masterView = isCurrentUserMaster();
+
+  if (reflectionInput) {
+    reflectionInput.disabled = !roomRef;
+  }
+
+  if (reflectionMasterTools) {
+    reflectionMasterTools.classList.toggle("hidden", !masterView);
+  }
+
+  if (!reflectionFeed) {
+    return;
+  }
+
+  reflectionFeed.innerHTML = "";
+  const entries = sanitizeReflectionEntries(state?.reflectionEntries);
+
+  if (!masterView) {
+    const visibleEntries = entries.filter(
+      (entry) => currentUser && entry.authorUid === currentUser.uid
+    );
+    reflectionFeed.className = "reflection-feed";
+    visibleEntries.forEach((entry) => {
+      reflectionFeed.appendChild(buildReflectionEntryTile(entry));
+    });
+    return;
+  }
+
+  reflectionFeed.className = "reflection-feed reflection-feed--master";
+  const groups = sanitizeReflectionGroups(state?.reflectionGroups, entries);
+  const groupedEntryIds = new Set(groups.flatMap((group) => group.entryIds));
+  const ungroupedEntries = entries.filter((entry) => !groupedEntryIds.has(entry.id));
+
+  const board = document.createElement("div");
+  board.className = "reflection-master-board";
+  board.appendChild(
+    buildReflectionZone({
+      title: "Tuiles a regrouper",
+      groupId: "",
+      entries: ungroupedEntries,
+      color: "",
+    })
+  );
+
+  if (groups.length) {
+    const groupsGrid = document.createElement("div");
+    groupsGrid.className = "reflection-groups-grid";
+
+    groups.forEach((group) => {
+      const groupCard = document.createElement("section");
+      groupCard.className = "reflection-group";
+      groupCard.style.setProperty("--reflection-group-color", group.color);
+
+      const header = document.createElement("div");
+      header.className = "reflection-group__header";
+
+      const title = document.createElement("input");
+      title.className = "reflection-group__title-input";
+      title.type = "text";
+      title.value = group.label;
+      title.maxLength = 80;
+      title.dataset.groupId = group.id;
+
+      header.appendChild(title);
+      groupCard.appendChild(header);
+
+      const groupEntries = group.entryIds
+        .map((entryId) => entries.find((entry) => entry.id === entryId))
+        .filter(Boolean);
+      groupCard.appendChild(
+        buildReflectionDropzone(group.id, groupEntries)
+      );
+
+      groupsGrid.appendChild(groupCard);
+    });
+
+    board.appendChild(groupsGrid);
+  }
+
+  reflectionFeed.appendChild(board);
+}
+
+function buildReflectionEntryTile(entry) {
+  const article = document.createElement("article");
+  article.className = `reflection-entry${
+    isCurrentUserMaster() ? " reflection-entry--draggable" : ""
+  }`;
+  article.dataset.entryId = entry.id;
+  article.draggable = isCurrentUserMaster();
+
+  const text = document.createElement("p");
+  text.className = "reflection-entry__text";
+  text.textContent = entry.text;
+
+  article.appendChild(text);
+  return article;
+}
+
+function buildReflectionDropzone(groupId, entries) {
+  const dropzone = document.createElement("div");
+  dropzone.className = "reflection-dropzone";
+  dropzone.dataset.groupId = groupId || "";
+
+  if (!entries.length) {
+    dropzone.classList.add("reflection-dropzone--empty");
+  }
+
+  const tiles = document.createElement("div");
+  tiles.className = "reflection-dropzone__tiles";
+  entries.forEach((entry) => {
+    tiles.appendChild(buildReflectionEntryTile(entry));
+  });
+  dropzone.appendChild(tiles);
+  return dropzone;
+}
+
+function buildReflectionZone({ title, groupId, entries, color }) {
+  const zone = document.createElement("section");
+  zone.className = "reflection-zone";
+  if (color) {
+    zone.style.setProperty("--reflection-group-color", color);
+  }
+
+  const heading = document.createElement("h3");
+  heading.className = "reflection-zone__title";
+  heading.textContent = title;
+  zone.appendChild(heading);
+  zone.appendChild(buildReflectionDropzone(groupId, entries));
+  return zone;
 }
 
 function ensureChartExists() {
@@ -3583,11 +3852,13 @@ async function requestModeChange(nextMode) {
       next.mode = nextMode;
       next.resetVersion = (Number(next.resetVersion) || 0) + 1;
 
-      if (nextMode === 1 || nextMode === 2 || nextMode === 3) {
+      if (nextMode === 1 || nextMode === 2 || nextMode === 3 || nextMode === 4) {
         next.selectedIds = {};
         next.otherCategorySelected = false;
         next.otherCategoryText = "";
         next.otherCategoryBonusEventAt = 0;
+        next.reflectionEntries = [];
+        next.reflectionGroups = [];
         next.history = [0];
         next.score = 0;
       }
@@ -3663,6 +3934,166 @@ async function requestOtherCategorySelectionToggle() {
   } catch (error) {
     console.error(error);
     showMessage("Impossible de synchroniser la selection de la note libre.");
+  }
+}
+
+async function requestReflectionEntrySubmit(value) {
+  if (!roomRef || !currentUser) {
+    return false;
+  }
+
+  const text = normalizeReflectionEntryText(value);
+  if (!text) {
+    return false;
+  }
+
+  const nextEntry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    text,
+    createdAt: Date.now(),
+    authorUid: currentUser.uid,
+  };
+
+  try {
+    await roomRef.transaction((current) => {
+      const next = normalizeRoomState(current);
+      next.reflectionEntries = [
+        ...sanitizeReflectionEntries(next.reflectionEntries),
+        nextEntry,
+      ].slice(-REFLECTION_ENTRY_LIMIT);
+      next.reflectionGroups = sanitizeReflectionGroups(
+        next.reflectionGroups,
+        next.reflectionEntries
+      );
+      next.updatedAt = Date.now();
+      return next;
+    });
+
+    const reflectionInput = document.getElementById("reflectionInput");
+    if (reflectionInput) {
+      reflectionInput.value = "";
+    }
+
+    return true;
+  } catch (error) {
+    console.error(error);
+    showMessage("Impossible de synchroniser la reponse.");
+    return false;
+  }
+}
+
+async function requestReflectionGroupCreate() {
+  if (!roomRef || !isCurrentUserMaster()) {
+    return false;
+  }
+
+  try {
+    await roomRef.transaction((current) => {
+      const next = normalizeRoomState(current);
+      const groups = sanitizeReflectionGroups(
+        next.reflectionGroups,
+        next.reflectionEntries
+      );
+
+      groups.push({
+        id: `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        label: `Sous-groupe ${groups.length + 1}`,
+        color: REFLECTION_GROUP_COLORS[groups.length % REFLECTION_GROUP_COLORS.length],
+        entryIds: [],
+      });
+
+      next.reflectionGroups = groups;
+      next.updatedAt = Date.now();
+      return next;
+    });
+
+    return true;
+  } catch (error) {
+    console.error(error);
+    showMessage("Impossible de creer le sous-groupe.");
+    return false;
+  }
+}
+
+async function requestReflectionGroupRename(groupId, label) {
+  if (!roomRef || !isCurrentUserMaster()) {
+    return false;
+  }
+
+  const normalizedGroupId = String(groupId || "").trim();
+  const normalizedLabel = String(label || "").trim().slice(0, 80);
+  if (!normalizedGroupId || !normalizedLabel) {
+    return false;
+  }
+
+  try {
+    await roomRef.transaction((current) => {
+      const next = normalizeRoomState(current);
+      const groups = sanitizeReflectionGroups(
+        next.reflectionGroups,
+        next.reflectionEntries
+      );
+      const targetGroup = groups.find((group) => group.id === normalizedGroupId);
+      if (!targetGroup) {
+        return;
+      }
+
+      targetGroup.label = normalizedLabel;
+      next.reflectionGroups = groups;
+      next.updatedAt = Date.now();
+      return next;
+    });
+
+    return true;
+  } catch (error) {
+    console.error(error);
+    showMessage("Impossible de renommer le sous-groupe.");
+    return false;
+  }
+}
+
+async function requestReflectionEntryMove(entryId, targetGroupId = "") {
+  if (!roomRef || !isCurrentUserMaster()) {
+    return false;
+  }
+
+  const normalizedEntryId = String(entryId || "").trim();
+  const normalizedTargetGroupId = String(targetGroupId || "").trim();
+  if (!normalizedEntryId) {
+    return false;
+  }
+
+  try {
+    await roomRef.transaction((current) => {
+      const next = normalizeRoomState(current);
+      const entries = sanitizeReflectionEntries(next.reflectionEntries);
+      if (!entries.some((entry) => entry.id === normalizedEntryId)) {
+        return;
+      }
+
+      const groups = sanitizeReflectionGroups(next.reflectionGroups, entries).map((group) => ({
+        ...group,
+        entryIds: group.entryIds.filter((id) => id !== normalizedEntryId),
+      }));
+
+      if (normalizedTargetGroupId) {
+        const targetGroup = groups.find((group) => group.id === normalizedTargetGroupId);
+        if (!targetGroup) {
+          return;
+        }
+        targetGroup.entryIds.push(normalizedEntryId);
+      }
+
+      next.reflectionGroups = groups;
+      next.updatedAt = Date.now();
+      return next;
+    });
+
+    return true;
+  } catch (error) {
+    console.error(error);
+    showMessage("Impossible de deplacer la tuile.");
+    return false;
   }
 }
 
@@ -3982,6 +4413,12 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const reflectionAddGroupButton = event.target.closest("#reflectionAddGroupBtn");
+  if (reflectionAddGroupButton) {
+    requestReflectionGroupCreate();
+    return;
+  }
+
   const flipButton = event.target.closest(".action-card__flip-btn");
   const backButton = event.target.closest(".action-card__back-btn");
 
@@ -4011,6 +4448,66 @@ document.addEventListener("click", (event) => {
   requestSelectionToggle(checkbox.dataset.id);
 });
 
+document.addEventListener("dragstart", (event) => {
+  const tile = event.target.closest(".reflection-entry--draggable");
+  if (!tile || !isCurrentUserMaster()) {
+    return;
+  }
+
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", tile.dataset.entryId || "");
+  tile.classList.add("reflection-entry--dragging");
+});
+
+document.addEventListener("dragend", (event) => {
+  const tile = event.target.closest(".reflection-entry--draggable");
+  if (!tile) {
+    return;
+  }
+
+  tile.classList.remove("reflection-entry--dragging");
+  document.querySelectorAll(".reflection-dropzone--active").forEach((zone) => {
+    zone.classList.remove("reflection-dropzone--active");
+  });
+});
+
+document.addEventListener("dragover", (event) => {
+  const dropzone = event.target.closest(".reflection-dropzone");
+  if (!dropzone || !isCurrentUserMaster()) {
+    return;
+  }
+
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  dropzone.classList.add("reflection-dropzone--active");
+});
+
+document.addEventListener("dragleave", (event) => {
+  const dropzone = event.target.closest(".reflection-dropzone");
+  if (!dropzone) {
+    return;
+  }
+
+  const relatedTarget = event.relatedTarget;
+  if (relatedTarget && dropzone.contains(relatedTarget)) {
+    return;
+  }
+
+  dropzone.classList.remove("reflection-dropzone--active");
+});
+
+document.addEventListener("drop", (event) => {
+  const dropzone = event.target.closest(".reflection-dropzone");
+  if (!dropzone || !isCurrentUserMaster()) {
+    return;
+  }
+
+  event.preventDefault();
+  dropzone.classList.remove("reflection-dropzone--active");
+  const entryId = event.dataTransfer.getData("text/plain");
+  requestReflectionEntryMove(entryId, dropzone.dataset.groupId || "");
+});
+
 document.addEventListener("input", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLTextAreaElement) || target.id !== "otherCategoryTextarea") {
@@ -4028,6 +4525,42 @@ document.addEventListener("input", (event) => {
     otherCategorySaveHandle = null;
     requestOtherCategoryTextSave(otherCategoryDraft);
   }, 250);
+});
+
+document.addEventListener("keydown", (event) => {
+  const titleInput = event.target.closest(".reflection-group__title-input");
+  if (titleInput) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      titleInput.blur();
+    }
+    return;
+  }
+
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || target.id !== "reflectionInput") {
+    return;
+  }
+
+  if (event.key !== "Enter") {
+    return;
+  }
+
+  event.preventDefault();
+  requestReflectionEntrySubmit(target.value);
+});
+
+document.addEventListener("change", (event) => {
+  const titleInput = event.target.closest(".reflection-group__title-input");
+  if (!titleInput) {
+    return;
+  }
+
+  const fallbackValue = titleInput.defaultValue || "Sous-groupe";
+  const nextValue = String(titleInput.value || "").trim() || fallbackValue;
+  titleInput.value = nextValue;
+  titleInput.defaultValue = nextValue;
+  requestReflectionGroupRename(titleInput.dataset.groupId || "", nextValue);
 });
 
 function applyInitialVisibility() {
