@@ -1074,6 +1074,16 @@ function syncOtherCategoryBonusToast(state) {
   lastSeenOtherCategoryBonusEventAt = eventAt;
 }
 
+function renderCreativityBadge(state) {
+  const creativityBadge = document.getElementById("creativityBadge");
+  if (!creativityBadge) {
+    return;
+  }
+
+  const unlocked = Number(state?.otherCategoryBonusEventAt) > 0;
+  creativityBadge.classList.toggle("hidden", !unlocked);
+}
+
 function openModeRulesModal(nextMode) {
   const copy = MODE_RULES_COPY[nextMode];
   const modal = document.getElementById("modeRulesModal");
@@ -1465,14 +1475,14 @@ function getSelectedActionsFromState(state) {
 }
 
 function getOtherCategoryBonus(state) {
-  return state?.otherCategorySelected ? 0.25 : 0;
+  return state?.otherCategorySelected ? 0.1 : 0;
 }
 
 function computeRoomScore(state, selectedActions = getSelectedActionsFromState(state)) {
   const metrics = computeMetricsFromSelection(selectedActions);
   return {
     ...metrics,
-    score: metrics.score + getOtherCategoryBonus(state),
+    score: metrics.score,
     baseScore: metrics.score,
   };
 }
@@ -3297,6 +3307,7 @@ function renderRoomState() {
   renderSelectionState(roomState);
   renderScoreBlock(roomState);
   renderReflectionBoard(roomState);
+  renderCreativityBadge(roomState);
   syncOtherCategoryBonusToast(roomState);
   updateVictoryModalState(roomState);
   updatePermissionUI();
@@ -3965,7 +3976,9 @@ async function requestOtherCategorySelectionToggle() {
 
       if (nextSelected && normalizedLiveTextValue.trim().length > 0) {
         next.otherCategoryText = normalizedLiveTextValue;
-        next.otherCategoryBonusEventAt = Date.now();
+        if (!(Number(next.otherCategoryBonusEventAt) > 0)) {
+          next.otherCategoryBonusEventAt = Date.now();
+        }
       }
 
       next.otherCategorySelected = nextSelected;
