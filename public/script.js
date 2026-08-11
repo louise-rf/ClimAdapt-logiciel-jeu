@@ -2611,6 +2611,7 @@ function renderModeUI(nextMode) {
   const masterRiskSetupScreen = document.getElementById(
     "masterRiskSetupScreen"
   );
+  const reflectionScreen = document.getElementById("reflectionScreen");
   const dashboard = document.getElementById("dashboard");
   const sidebar = document.querySelector(".sidebar");
   const gridEl = document.getElementById("grid");
@@ -2641,6 +2642,11 @@ function renderModeUI(nextMode) {
     },
   };
 
+  modeCopy[4] = {
+    label: "Interlude",
+    title: "R\u00e9flexion",
+  };
+
   if (homeScreen) {
     homeScreen.classList.toggle("hidden", nextMode !== 0 || showMasterRiskSetup);
   }
@@ -2650,9 +2656,12 @@ function renderModeUI(nextMode) {
       nextMode !== 0 || !showMasterRiskSetup
     );
   }
-  if (dashboard) dashboard.classList.toggle("hidden", nextMode === 0);
+  if (reflectionScreen) {
+    reflectionScreen.classList.toggle("hidden", nextMode !== 4);
+  }
+  if (dashboard) dashboard.classList.toggle("hidden", nextMode === 0 || nextMode === 4);
   if (sidebar) sidebar.classList.toggle("hidden", nextMode === 0);
-  if (gridEl) gridEl.classList.toggle("hidden", nextMode === 0);
+  if (gridEl) gridEl.classList.toggle("hidden", nextMode === 0 || nextMode === 4);
   if (header) header.classList.toggle("hidden", nextMode === 0);
 
   if (modeLabel && modeCopy[nextMode]) {
@@ -2664,15 +2673,16 @@ function renderModeUI(nextMode) {
   }
 
   if (categoryFilterWrap) {
-    categoryFilterWrap.style.display = nextMode >= 1 ? "flex" : "none";
+    categoryFilterWrap.style.display =
+      nextMode >= 1 && nextMode <= 3 ? "flex" : "none";
   }
 
   if (chartCardEl) {
-    chartCardEl.style.display = nextMode >= 2 ? "" : "none";
+    chartCardEl.style.display = nextMode >= 2 && nextMode <= 3 ? "" : "none";
   }
 
   if (riskCardEl) {
-    riskCardEl.style.display = nextMode >= 2 ? "" : "none";
+    riskCardEl.style.display = nextMode >= 2 && nextMode <= 3 ? "" : "none";
   }
 
   if (criteriaBox) {
@@ -2684,7 +2694,7 @@ function renderModeUI(nextMode) {
     if (nextMode === 1) {
       chartTitle.textContent = "À venir ...";
       chartTitle.classList.add("future-title");
-    } else if (nextMode >= 2) {
+    } else if (nextMode >= 2 && nextMode <= 3) {
       chartTitle.textContent = nextMode === 3 ? "Analyse finale" : "Évolution du score";
     }
   }
@@ -3680,7 +3690,7 @@ function setMode(nextMode) {
     return;
   }
 
-  if (nextMode === 2 || nextMode === 3) {
+  if (nextMode === 2 || nextMode === 3 || nextMode === 4) {
     requestModeChange(nextMode);
     return;
   }
