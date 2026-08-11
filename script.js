@@ -258,6 +258,7 @@ const DEFAULT_ROOM_STATE = {
   topRisks: [],
   reflectionEntries: [],
   reflectionGroups: [],
+  reflectionGroupsRevealed: false,
   history: [0],
   score: 0,
   updatedAt: 0,
@@ -1345,6 +1346,7 @@ function normalizeRoomState(value) {
     next.reflectionGroups,
     next.reflectionEntries
   );
+  next.reflectionGroupsRevealed = Boolean(next.reflectionGroupsRevealed);
   next.mode = Number(next.mode) || 0;
   next.resetVersion = Number(next.resetVersion) || 0;
   next.score = Number(next.score) || 0;
@@ -3303,16 +3305,28 @@ function renderRoomState() {
 
 function renderReflectionBoard(state) {
   const reflectionInput = document.getElementById("reflectionInput");
+  const reflectionBoard = document.querySelector(".reflection-board");
   const reflectionFeed = document.getElementById("reflectionFeed");
   const reflectionMasterTools = document.getElementById("reflectionMasterTools");
+  const reflectionRevealButton = document.getElementById("reflectionRevealBtn");
   const masterView = isCurrentUserMaster();
+  const revealedView = Boolean(state?.reflectionGroupsRevealed);
 
   if (reflectionInput) {
     reflectionInput.disabled = !roomRef;
   }
 
+  if (reflectionBoard) {
+    reflectionBoard.classList.toggle("hidden", !masterView && revealedView);
+  }
+
   if (reflectionMasterTools) {
     reflectionMasterTools.classList.toggle("hidden", !masterView);
+  }
+
+  if (reflectionRevealButton) {
+    reflectionRevealButton.disabled = revealedView;
+    reflectionRevealButton.textContent = revealedView ? "Révélé" : "Révéler";
   }
 
   if (!reflectionFeed) {
@@ -3321,20 +3335,38 @@ function renderReflectionBoard(state) {
 
   reflectionFeed.innerHTML = "";
   const entries = sanitizeReflectionEntries(state?.reflectionEntries);
+  const groups = sanitizeReflectionGroups(state?.reflectionGroups, entries);
 
   if (!masterView) {
-    const visibleEntries = entries.filter(
-      (entry) => currentUser && entry.authorUid === currentUser.uid
-    );
-    reflectionFeed.className = "reflection-feed";
-    visibleEntries.forEach((entry) => {
-      reflectionFeed.appendChild(buildReflectionEntryTile(entry));
+    if (!revealedView) {
+      const visibleEntries = entries.filter(
+        (entry) => currentUser && entry.authorUid === currentUser.uid
+      );
+      reflectionFeed.className = "reflection-feed";
+      visibleEntries.forEach((entry) => {
+        reflectionFeed.appendChild(buildReflectionEntryTile(entry));
+      });
+      return;
+    }
+
+    reflectionFeed.className = "reflection-feed reflection-feed--master";
+    const groupsGrid = document.createElement("div");
+    groupsGrid.className = "reflection-groups-grid";
+
+    groups.forEach((group) => {
+      const groupEntries = group.entryIds
+        .map((entryId) => entries.find((entry) => entry.id === entryId))
+        .filter(Boolean);
+      groupsGrid.appendChild(
+        buildReflectionGroupCard(group, groupEntries, false)
+      );
     });
+
+    reflectionFeed.appendChild(groupsGrid);
     return;
   }
 
   reflectionFeed.className = "reflection-feed reflection-feed--master";
-  const groups = sanitizeReflectionGroups(state?.reflectionGroups, entries);
   const groupedEntryIds = new Set(groups.flatMap((group) => group.entryIds));
   const ungroupedEntries = entries.filter((entry) => !groupedEntryIds.has(entry.id));
 
@@ -3354,37 +3386,48 @@ function renderReflectionBoard(state) {
     groupsGrid.className = "reflection-groups-grid";
 
     groups.forEach((group) => {
-      const groupCard = document.createElement("section");
-      groupCard.className = "reflection-group";
-      groupCard.style.setProperty("--reflection-group-color", group.color);
-
-      const header = document.createElement("div");
-      header.className = "reflection-group__header";
-
-      const title = document.createElement("input");
-      title.className = "reflection-group__title-input";
-      title.type = "text";
-      title.value = group.label;
-      title.maxLength = 80;
-      title.dataset.groupId = group.id;
-
-      header.appendChild(title);
-      groupCard.appendChild(header);
-
       const groupEntries = group.entryIds
         .map((entryId) => entries.find((entry) => entry.id === entryId))
         .filter(Boolean);
-      groupCard.appendChild(
-        buildReflectionDropzone(group.id, groupEntries)
+      groupsGrid.appendChild(
+        buildReflectionGroupCard(group, groupEntries, true)
       );
-
-      groupsGrid.appendChild(groupCard);
     });
 
     board.appendChild(groupsGrid);
   }
 
   reflectionFeed.appendChild(board);
+}
+
+function buildReflectionGroupCard(group, entries, editableTitle) {
+  const groupCard = document.createElement("section");
+  groupCard.className = "reflection-group";
+  groupCard.style.setProperty("--reflection-group-color", group.color);
+
+  const header = document.createElement("div");
+  header.className = "reflection-group__header";
+
+  if (editableTitle) {
+    const title = document.createElement("input");
+    title.className = "reflection-group__title-input";
+    title.type = "text";
+    title.value = group.label;
+    title.maxLength = 80;
+    title.dataset.groupId = group.id;
+    header.appendChild(title);
+  } else {
+    const title = document.createElement("h3");
+    title.className = "reflection-group__title";
+    title.textContent = group.label;
+    header.appendChild(title);
+  }
+
+  groupCard.appendChild(header);
+  groupCard.appendChild(
+    buildReflectionDropzone(group.id, entries, { placeholder: editableTitle })
+  );
+  return groupCard;
 }
 
 function buildReflectionEntryTile(entry) {
@@ -3403,12 +3446,13 @@ function buildReflectionEntryTile(entry) {
   return article;
 }
 
-function buildReflectionDropzone(groupId, entries) {
+function buildReflectionDropzone(groupId, entries, options = {}) {
+  const { placeholder = true } = options;
   const dropzone = document.createElement("div");
   dropzone.className = "reflection-dropzone";
   dropzone.dataset.groupId = groupId || "";
 
-  if (!entries.length) {
+  if (!entries.length && placeholder) {
     dropzone.classList.add("reflection-dropzone--empty");
   }
 
@@ -3859,6 +3903,7 @@ async function requestModeChange(nextMode) {
         next.otherCategoryBonusEventAt = 0;
         next.reflectionEntries = [];
         next.reflectionGroups = [];
+        next.reflectionGroupsRevealed = false;
         next.history = [0];
         next.score = 0;
       }
@@ -4048,6 +4093,27 @@ async function requestReflectionGroupRename(groupId, label) {
   } catch (error) {
     console.error(error);
     showMessage("Impossible de renommer le sous-groupe.");
+    return false;
+  }
+}
+
+async function requestReflectionGroupsReveal() {
+  if (!roomRef || !isCurrentUserMaster()) {
+    return false;
+  }
+
+  try {
+    await roomRef.transaction((current) => {
+      const next = normalizeRoomState(current);
+      next.reflectionGroupsRevealed = true;
+      next.updatedAt = Date.now();
+      return next;
+    });
+
+    return true;
+  } catch (error) {
+    console.error(error);
+    showMessage("Impossible de reveler les sous-groupes.");
     return false;
   }
 }
@@ -4416,6 +4482,12 @@ document.addEventListener("click", (event) => {
   const reflectionAddGroupButton = event.target.closest("#reflectionAddGroupBtn");
   if (reflectionAddGroupButton) {
     requestReflectionGroupCreate();
+    return;
+  }
+
+  const reflectionRevealButton = event.target.closest("#reflectionRevealBtn");
+  if (reflectionRevealButton) {
+    requestReflectionGroupsReveal();
     return;
   }
 
