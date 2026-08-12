@@ -5328,9 +5328,6 @@ function exportPDFStyled() {
     scoreText: formatExportScore(metrics.score),
     achievements: buildExportAchievementSummary(state),
     actionGroups: buildExportActionGroups(state),
-    assets: {
-      logoUrl: new URL("images/Akteologo.svg", window.location.href).href,
-    },
   });
 
   const printWindow = openPrintWindow(html);
