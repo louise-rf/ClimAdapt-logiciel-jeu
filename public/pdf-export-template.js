@@ -494,9 +494,49 @@
       return null;
     }
 
+    let printRequested = false;
+    const nativePrint =
+      typeof printWindow.print === "function" ? printWindow.print.bind(printWindow) : null;
+
+    if (nativePrint) {
+      printWindow.print = function () {
+        printRequested = true;
+        return nativePrint();
+      };
+    }
+
     printWindow.document.open();
     printWindow.document.write(html);
     printWindow.document.close();
+
+    const isFirefox = /firefox/i.test(String(window.navigator?.userAgent || ""));
+    if (isFirefox && nativePrint) {
+      const triggerFirefoxFallback = function () {
+        if (printRequested || printWindow.closed) {
+          return;
+        }
+
+        printRequested = true;
+
+        try {
+          printWindow.focus();
+          nativePrint();
+        } catch (error) {
+          // Ignore print fallback errors to preserve the existing export flow.
+        }
+      };
+
+      printWindow.addEventListener(
+        "load",
+        function () {
+          printWindow.setTimeout(triggerFirefoxFallback, 700);
+        },
+        { once: true }
+      );
+
+      printWindow.setTimeout(triggerFirefoxFallback, 1800);
+    }
+
     return printWindow;
   }
 
