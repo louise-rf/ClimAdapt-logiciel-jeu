@@ -34,7 +34,7 @@ const ACTION_CATALOGS_MANIFEST_PATH = "action-catalogs.json";
 const DEFAULT_ACTION_CATALOGS = Object.freeze([
   {
     id: "default",
-    label: "Catalogue principal",
+    label: "0 - Catalogue Principal",
     path: DEFAULT_ACTIONS_CSV_PATH,
   },
 ]);

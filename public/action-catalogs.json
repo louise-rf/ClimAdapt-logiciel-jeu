@@ -1,7 +1,7 @@
 [
   {
     "id": "default",
-    "label": "Catalogue principal",
+    "label": "0 - Catalogue Principal",
     "path": "actions_selection.csv"
   },
   {
@@ -13,5 +13,10 @@
     "id": "2-limoges-infra-de-transport-materiel-roulant-mobilites-actives",
     "label": "2 - Limoges (infra de transport, matériel roulant, mobilités actives)",
     "path": "fiches actions - catalogues types/2 - Limoges (infra de transport, matériel roulant, mobilités actives).csv"
+  },
+  {
+    "id": "3-nantes-data-reseaux-centres",
+    "label": "3 - Nantes (data, réseaux, centres)",
+    "path": "fiches actions - catalogues types/3 - Nantes (data, réseaux, centres).csv"
   }
 ]

@@ -9,7 +9,7 @@ from pathlib import Path
 
 DEFAULT_CATALOG = {
     "id": "default",
-    "label": "Catalogue principal",
+    "label": "0 - Catalogue Principal",
     "path": "actions_selection.csv",
 }
 CATALOGS_SUBDIR = "fiches actions - catalogues types"
