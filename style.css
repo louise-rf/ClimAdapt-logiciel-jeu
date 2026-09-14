@@ -1790,7 +1790,7 @@
   }
 
   .reflection-dropzone--empty::after {
-    content: "Déposez des tuiles ici";
+    content: "Cliquez sur une tuile pour la classer";
     display: block;
     color: var(--muted_color);
     font-size: 0.92rem;
@@ -1811,13 +1811,47 @@
     box-shadow: 0 10px 24px rgba(15, 21, 17, 0.05);
   }
 
-  .reflection-entry--draggable {
-    cursor: grab;
-    user-select: none;
+  .reflection-entry__choose {
+    display: block;
+    width: 100%;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
   }
 
-  .reflection-entry--dragging {
-    opacity: 0.45;
+  .reflection-entry__choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+  }
+
+  .reflection-entry__choices button {
+    border: 1px solid var(--border_color);
+    border-radius: 8px;
+    padding: 0.4rem 0.6rem;
+    color: #172019;
+    font: inherit;
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+
+  .reflection-entry__choose:focus-visible,
+  .reflection-entry__choices button:focus-visible {
+    outline: 2px solid var(--accent_color);
+    outline-offset: 3px;
+  }
+
+  .reflection-finished {
+    grid-column: 1 / -1;
+    padding: 1.5rem;
+    text-align: center;
+    font-weight: 600;
   }
 
   .reflection-entry__text {

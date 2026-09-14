@@ -3566,7 +3566,7 @@ function renderReflectionBoard(state) {
   const revealedView = Boolean(state?.reflectionGroupsRevealed);
 
   if (reflectionInput) {
-    reflectionInput.disabled = !roomRef;
+    reflectionInput.disabled = !roomRef || (!masterView && revealedView);
   }
 
   if (reflectionBoard) {
@@ -3602,20 +3602,12 @@ function renderReflectionBoard(state) {
       return;
     }
 
-    reflectionFeed.className = "reflection-feed reflection-feed--master";
-    const groupsGrid = document.createElement("div");
-    groupsGrid.className = "reflection-groups-grid";
-
-    groups.forEach((group) => {
-      const groupEntries = group.entryIds
-        .map((entryId) => entries.find((entry) => entry.id === entryId))
-        .filter(Boolean);
-      groupsGrid.appendChild(
-        buildReflectionGroupCard(group, groupEntries, false)
-      );
-    });
-
-    reflectionFeed.appendChild(groupsGrid);
+    reflectionFeed.className = "reflection-feed";
+    const finishedMessage = document.createElement("p");
+    finishedMessage.className = "reflection-finished";
+    finishedMessage.setAttribute("role", "status");
+    finishedMessage.textContent = "Fin de la réflexion. Merci pour vos contributions !";
+    reflectionFeed.appendChild(finishedMessage);
     return;
   }
 
@@ -3685,17 +3677,53 @@ function buildReflectionGroupCard(group, entries, editableTitle) {
 
 function buildReflectionEntryTile(entry) {
   const article = document.createElement("article");
-  article.className = `reflection-entry${
-    isCurrentUserMaster() ? " reflection-entry--draggable" : ""
-  }`;
+  article.className = "reflection-entry";
   article.dataset.entryId = entry.id;
-  article.draggable = isCurrentUserMaster();
 
-  const text = document.createElement("p");
+  const masterView = isCurrentUserMaster();
+  const text = document.createElement(masterView ? "button" : "p");
   text.className = "reflection-entry__text";
   text.textContent = entry.text;
-
   article.appendChild(text);
+
+  if (masterView) {
+    text.type = "button";
+    text.classList.add("reflection-entry__choose");
+    text.setAttribute("aria-expanded", "false");
+    text.title = "Choisir un sous-groupe";
+    const choices = document.createElement("div");
+    choices.className = "reflection-entry__choices hidden";
+    article.appendChild(choices);
+    text.addEventListener("click", () => {
+      const opening = choices.classList.contains("hidden");
+      document.querySelectorAll(".reflection-entry__choices").forEach((menu) => menu.classList.add("hidden"));
+      document.querySelectorAll(".reflection-entry__choose").forEach((button) => button.setAttribute("aria-expanded", "false"));
+      if (!opening) return;
+      choices.replaceChildren();
+      const groups = sanitizeReflectionGroups(roomState.reflectionGroups, roomState.reflectionEntries);
+      const destinations = [...groups, { id: "", label: "Sans sous-groupe", color: "#eeeeee" }];
+      if (!groups.length) {
+        const hint = document.createElement("p");
+        hint.textContent = "Créez un sous-groupe avec le bouton Nouveau sous-groupe.";
+        choices.appendChild(hint);
+      }
+      destinations.forEach((group) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = group.label;
+        button.style.backgroundColor = group.color;
+        button.addEventListener("click", async () => {
+          if (await requestReflectionEntryMove(entry.id, group.id)) {
+            choices.classList.add("hidden");
+            text.setAttribute("aria-expanded", "false");
+          }
+        });
+        choices.appendChild(button);
+      });
+      choices.classList.remove("hidden");
+      text.setAttribute("aria-expanded", "true");
+    });
+  }
   return article;
 }
 
@@ -4298,8 +4326,11 @@ async function requestReflectionEntrySubmit(value) {
   };
 
   try {
-    await roomRef.transaction((current) => {
+    const result = await roomRef.transaction((current) => {
       const next = normalizeRoomState(current);
+      if (Number(next.mode) !== 4 || (next.reflectionGroupsRevealed && !isCurrentUserMaster())) {
+        return;
+      }
       next.reflectionEntries = [
         ...sanitizeReflectionEntries(next.reflectionEntries),
         nextEntry,
@@ -4311,6 +4342,8 @@ async function requestReflectionEntrySubmit(value) {
       next.updatedAt = Date.now();
       return next;
     });
+
+    if (!result.committed) return false;
 
     const reflectionInput = document.getElementById("reflectionInput");
     if (reflectionInput) {
@@ -4818,65 +4851,19 @@ document.addEventListener("click", (event) => {
   requestSelectionToggle(checkbox.dataset.id);
 });
 
-document.addEventListener("dragstart", (event) => {
-  const tile = event.target.closest(".reflection-entry--draggable");
-  if (!tile || !isCurrentUserMaster()) {
-    return;
-  }
-
-  event.dataTransfer.effectAllowed = "move";
-  event.dataTransfer.setData("text/plain", tile.dataset.entryId || "");
-  tile.classList.add("reflection-entry--dragging");
+document.addEventListener("click", (event) => {
+  if (event.target.closest(".reflection-entry")) return;
+  closeReflectionChoices();
 });
 
-document.addEventListener("dragend", (event) => {
-  const tile = event.target.closest(".reflection-entry--draggable");
-  if (!tile) {
-    return;
-  }
-
-  tile.classList.remove("reflection-entry--dragging");
-  document.querySelectorAll(".reflection-dropzone--active").forEach((zone) => {
-    zone.classList.remove("reflection-dropzone--active");
-  });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeReflectionChoices();
 });
 
-document.addEventListener("dragover", (event) => {
-  const dropzone = event.target.closest(".reflection-dropzone");
-  if (!dropzone || !isCurrentUserMaster()) {
-    return;
-  }
-
-  event.preventDefault();
-  event.dataTransfer.dropEffect = "move";
-  dropzone.classList.add("reflection-dropzone--active");
-});
-
-document.addEventListener("dragleave", (event) => {
-  const dropzone = event.target.closest(".reflection-dropzone");
-  if (!dropzone) {
-    return;
-  }
-
-  const relatedTarget = event.relatedTarget;
-  if (relatedTarget && dropzone.contains(relatedTarget)) {
-    return;
-  }
-
-  dropzone.classList.remove("reflection-dropzone--active");
-});
-
-document.addEventListener("drop", (event) => {
-  const dropzone = event.target.closest(".reflection-dropzone");
-  if (!dropzone || !isCurrentUserMaster()) {
-    return;
-  }
-
-  event.preventDefault();
-  dropzone.classList.remove("reflection-dropzone--active");
-  const entryId = event.dataTransfer.getData("text/plain");
-  requestReflectionEntryMove(entryId, dropzone.dataset.groupId || "");
-});
+function closeReflectionChoices() {
+  document.querySelectorAll(".reflection-entry__choices").forEach((menu) => menu.classList.add("hidden"));
+  document.querySelectorAll(".reflection-entry__choose").forEach((button) => button.setAttribute("aria-expanded", "false"));
+}
 
 document.addEventListener("input", (event) => {
   const target = event.target;
