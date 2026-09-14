@@ -3564,6 +3564,17 @@ function renderReflectionBoard(state) {
   const reflectionRevealButton = document.getElementById("reflectionRevealBtn");
   const masterView = isCurrentUserMaster();
   const revealedView = Boolean(state?.reflectionGroupsRevealed);
+  document.getElementById("reflectionPresentBtn")?.classList.toggle(
+    "hidden", !masterView || !revealedView || Number(state?.mode) !== 4
+  );
+  const presentation = document.getElementById("reflectionPresentation");
+  if (presentation?.open) {
+    if (!masterView || !revealedView || Number(state?.mode) !== 4) {
+      presentation.close();
+    } else {
+      renderReflectionPresentation(state);
+    }
+  }
 
   if (reflectionInput) {
     reflectionInput.disabled = !roomRef || (!masterView && revealedView);
@@ -3645,7 +3656,37 @@ function renderReflectionBoard(state) {
   reflectionFeed.appendChild(board);
 }
 
-function buildReflectionGroupCard(group, entries, editableTitle) {
+function renderReflectionPresentation(state) {
+  const container = document.getElementById("reflectionPresentationGroups");
+  if (!container) return;
+  container.replaceChildren();
+  const entries = sanitizeReflectionEntries(state?.reflectionEntries);
+  const groups = sanitizeReflectionGroups(state?.reflectionGroups, entries);
+  if (!groups.length) {
+    const message = document.createElement("p");
+    message.className = "reflection-finished";
+    message.textContent = "Aucun sous-groupe pour le moment. Revenez à la réflexion pour en créer.";
+    container.appendChild(message);
+  }
+  groups.forEach((group) => {
+    const groupEntries = group.entryIds
+      .map((id) => entries.find((entry) => entry.id === id))
+      .filter(Boolean);
+    container.appendChild(buildReflectionGroupCard(group, groupEntries, false, true));
+  });
+}
+
+function openReflectionPresentation() {
+  if (!isCurrentUserMaster() || Number(roomState?.mode) !== 4 || !roomState?.reflectionGroupsRevealed) return;
+  const presentation = document.getElementById("reflectionPresentation");
+  if (!presentation || presentation.open) return;
+  closeReflectionChoices();
+  renderReflectionPresentation(roomState);
+  presentation.showModal();
+  presentation.scrollTop = 0;
+}
+
+function buildReflectionGroupCard(group, entries, editableTitle, readOnly = false) {
   const groupCard = document.createElement("section");
   groupCard.className = "reflection-group";
   groupCard.style.setProperty("--reflection-group-color", group.color);
@@ -3670,17 +3711,17 @@ function buildReflectionGroupCard(group, entries, editableTitle) {
 
   groupCard.appendChild(header);
   groupCard.appendChild(
-    buildReflectionDropzone(group.id, entries, { placeholder: editableTitle })
+    buildReflectionDropzone(group.id, entries, { placeholder: editableTitle, readOnly })
   );
   return groupCard;
 }
 
-function buildReflectionEntryTile(entry) {
+function buildReflectionEntryTile(entry, readOnly = false) {
   const article = document.createElement("article");
   article.className = "reflection-entry";
   article.dataset.entryId = entry.id;
 
-  const masterView = isCurrentUserMaster();
+  const masterView = isCurrentUserMaster() && !readOnly;
   const text = document.createElement(masterView ? "button" : "p");
   text.className = "reflection-entry__text";
   text.textContent = entry.text;
@@ -3728,7 +3769,7 @@ function buildReflectionEntryTile(entry) {
 }
 
 function buildReflectionDropzone(groupId, entries, options = {}) {
-  const { placeholder = true } = options;
+  const { placeholder = true, readOnly = false } = options;
   const dropzone = document.createElement("div");
   dropzone.className = "reflection-dropzone";
   dropzone.dataset.groupId = groupId || "";
@@ -3740,7 +3781,7 @@ function buildReflectionDropzone(groupId, entries, options = {}) {
   const tiles = document.createElement("div");
   tiles.className = "reflection-dropzone__tiles";
   entries.forEach((entry) => {
-    tiles.appendChild(buildReflectionEntryTile(entry));
+    tiles.appendChild(buildReflectionEntryTile(entry, readOnly));
   });
   dropzone.appendChild(tiles);
   return dropzone;
@@ -4819,6 +4860,11 @@ document.addEventListener("click", (event) => {
   const reflectionRevealButton = event.target.closest("#reflectionRevealBtn");
   if (reflectionRevealButton) {
     requestReflectionGroupsReveal();
+    return;
+  }
+
+  if (event.target.closest("#reflectionPresentBtn")) {
+    openReflectionPresentation();
     return;
   }
 

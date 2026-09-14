@@ -361,6 +361,13 @@
             >
               Révéler
             </button>
+            <button
+              id="reflectionPresentBtn"
+              class="reflection-master-tools__button hidden"
+              type="button"
+            >
+              Présenter
+            </button>
           </div>
 
           <div class="reflection-feed" id="reflectionFeed"></div>
@@ -466,6 +473,18 @@
       <p>© 2026 Akteo – Tous droits réservés</p>
     </footer>
   </div>
+  <dialog id="reflectionPresentation" class="reflection-presentation" aria-labelledby="reflectionPresentationTitle">
+    <header class="reflection-presentation__header">
+      <div>
+        <p class="reflection-presentation__eyebrow">Notre réflexion collective</p>
+        <h1 id="reflectionPresentationTitle">Les bonnes pratiques</h1>
+      </div>
+      <form method="dialog">
+        <button class="reflection-master-tools__button" autofocus>Quitter la présentation <span aria-hidden="true">· Échap</span></button>
+      </form>
+    </header>
+    <div id="reflectionPresentationGroups" class="reflection-presentation__groups"></div>
+  </dialog>
 </body>
 
 </html>
