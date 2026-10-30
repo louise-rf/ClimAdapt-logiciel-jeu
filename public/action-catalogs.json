@@ -18,5 +18,15 @@
     "id": "3-nantes-data-reseaux-centres",
     "label": "3 - Nantes (data, réseaux, centres)",
     "path": "fiches actions - catalogues types/3 - Nantes (data, réseaux, centres).csv"
+  },
+  {
+    "id": "4-ensam-chaleur",
+    "label": "4-ENSAM (chaleur)",
+    "path": "fiches actions - catalogues types/4-ENSAM (chaleur).csv"
+  },
+  {
+    "id": "4-ensam-rga-inondation",
+    "label": "4-ENSAM (RGA + inondation)",
+    "path": "fiches actions - catalogues types/4-ENSAM (RGA + inondation).csv"
   }
 ]
